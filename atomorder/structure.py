@@ -1,42 +1,6 @@
-#!/usr/bin/env python2
+from . import oprint, args
 
-import . utils
-from .utils import oprint, eprint
-import numpy as np
-import sys
-import .definitions
-#import re
-#import itertools
-#import scipy.sparse
-#import scipy.sparse.linalg
-#import scipy.linalg
-
-def parse_args():
-    """
-    Parses command line arguments.
-
-    """
-
-
-    description = ""
-    epilog = ""
-
-    parser = argparse.ArgumentParser(
-            description = description,
-            formatter_class = argparse.RawDescriptionHelpFormatter,
-            epilog = epilog)
-
-    parser = argparse.ArgumentParser(description='Fit probability density functions to data-files')
-    parser.add_argument('-r', '--reactants', help='Reactant structures in a coordinate file format.', action='store', type=str, nargs='+')
-    parser.add_argument('-p', '--products', help='Product structures in a coordinate file format.', action='store', type=str, nargs='+')
-    parser.add_argument('--print-level', help='Print-level.', type=int, action='store', default=1) # 0: quiet, 1: results and errors, 2: +warnings, 3: +progress, 4+: excess
-    parser.add_argument('-f', '--format', help='File format', type=str, action='store', default='guess', choices=["guess","xyz","pdb"])
-    # TODO output atom mapping oneline, save reordered products
-    # TODO parameter object
-
-    return parser.parse_args()
-
-class reaction(object):
+class Reaction(object):
     """
     reaction(args)
 
@@ -52,18 +16,15 @@ class reaction(object):
 
     """
 
-    # TODO construct the objective
-
     def __init__(self):
-        if args.print_level == 3:
-            print "Creating reactants"
+        print __name__
+        oprint(3, "Creating reactants")
         self.reactants = mixture(args.reactants)
-        if args.print_level == 3:
-            print "Creating products"
+        oprint(3, "Creating products")
         self.products = mixture(args.products)
 
 class mixture(object):
-     """
+    """
     mixture(filenames)
 
     Collection of one or several molecules.
@@ -247,6 +208,7 @@ class molecule(object):
                 for index1, index2 in bond_indices:
                     # only need to check index1, as index1 is always less than index2
                     if index1 == atom.index and self.atoms[index2].validated == False:
+                        pass
 
 class atom(object):
     """
@@ -438,15 +400,3 @@ def get_coordinates_pdb(filename):
         error("Mismatch in number of parsed atomtypes (%d) and number of parsed coordinates (%d) from PDB file: %s" \
                 % (coordinates.shape[0], atoms.size, filename))
     return atoms, coordinates
-
-if __name__ == "__main__":
-
-    import argparse
-
-    # global
-    args = parse_args()
-    quit()
-    r = reaction()
-    # initialize optimization
-    # begin optimization
-    # post processing
