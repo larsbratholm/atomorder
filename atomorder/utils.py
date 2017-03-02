@@ -2,6 +2,7 @@ from __future__ import print_function
 import __builtin__
 import sys
 import argparse
+from . import settings
 
 def oprint(level, string):
     """
@@ -16,7 +17,7 @@ def oprint(level, string):
 
     """
 
-    if args.print_level >= level:
+    if settings.print_level >= level:
         __builtin__.print(string)
 
 def eprint(level, string):
@@ -32,7 +33,7 @@ def eprint(level, string):
 
     """
 
-    if args.print_level >= level:
+    if settings.print_level >= level:
         __builtin__.print(string, file = sys.stderr)
 
 def get_csd_atom_type(atom):
@@ -237,10 +238,9 @@ def get_csd_atom_type_S(atom):
 
 def parse_args():
     """
-    Parses command line arguments.
+    Parses command line arguments and overwrites setting defaults
 
     """
-
 
     description = ""
     epilog = ""
@@ -258,4 +258,8 @@ def parse_args():
     # TODO output atom mapping oneline, save reordered products
     # TODO parameter object
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    # override setting defaults
+    settings.update(args)
+

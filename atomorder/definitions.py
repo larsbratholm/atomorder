@@ -1,10 +1,26 @@
 
 class Constants(object):
+    """
+    Constants()
+
+    Constructor for constants used in the script
+
+
+    Attributes
+    ----------
+    bond_length_limits: dict
+        Dictionary of loose and tight distance limits on bond lengths
+    number_bonds: dict
+        Number of bonds the supported atom types can form
+    monovalent: list
+        Monovalent atom types
+
+    """
     def __init__(self):
 
         # Found from analyzing the CCDC 2016 database.
         # loose_lower, lower, loose_upper, upper
-        bond_length_limits = {("As","As"): (2.20, 2.30, 2.65, 2.80),
+        self.bond_length_limits = {("As","As"): (2.20, 2.30, 2.65, 2.80),
                               ("As","Br"): (2.20, 2.30, 3.30, 3.40),
                               ("As","Cl"): (2.10, 2.15, 2.40, 3.30),
                               ("As","C" ): (1.75, 1.80, 2.10, 2.20),
@@ -55,14 +71,14 @@ class Constants(object):
                              }
         # hydrogen bond lengths were taken from neutron diffraction data that
         # didn't have many S-H hits, so guesstimate them
-        bond_length_limits[("H","S")] = (1.2,1.3,1.4,1.5)
-        
+        self.bond_length_limits[("H","S")] = (1.2,1.3,1.4,1.5)
+
         # make inverse atom order
-        for key, value in bond_length_limits.items():
-            bond_length_limits[key[::-1]] = value
-        
+        for key, value in self.bond_length_limits.items():
+            self.bond_length_limits[key[::-1]] = value
+
         # number of bonds each atom type commonly form
-        number_bonds = {"As": [3,4],
+        self.number_bonds = {"As": [3,4],
                         "Br": [1],
                         "C" : [2,3,4],
                         "Cl": [1],
@@ -76,5 +92,5 @@ class Constants(object):
                         }
         
         # monovalent atoms
-        monovalent = ["Br","Cl","F","H","I"]
+        self.monovalent = ["Br","Cl","F","H","I"]
 

@@ -1,8 +1,11 @@
 
-from definitions import Constants
-from utils import parse_args, oprint, eprint, get_csd_atom_type
-from structure import Reaction
+# done this way to ensure the loading in the right order
+from .globals import settings
 
-constants = Constants
+from .definitions import Constants
+# constants defined in the Constants class
+constants = Constants()
 
-args = parse_args()
+from .structure import Reaction
+from .utils import parse_args
+

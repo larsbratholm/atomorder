@@ -1,10 +1,11 @@
 #!/usr/bin/env python2
 
-from atomorder import args, Reaction
+from atomorder import Reaction, parse_args
 
 if __name__ == "__main__":
 
-    parse_args() # global
+    # call to overwrite default with given arguments
+    parse_args()
     # parse structures and preprocess
     r = Reaction()
     # initialize optimization

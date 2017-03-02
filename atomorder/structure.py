@@ -1,8 +1,11 @@
-from . import oprint, args
+from .utils import oprint, eprint
+import atomorder
+from . import settings, constants
+import numpy as np
 
 class Reaction(object):
     """
-    reaction(args)
+    Reaction()
 
     Everything involving both reactants and products
 
@@ -17,15 +20,14 @@ class Reaction(object):
     """
 
     def __init__(self):
-        print __name__
         oprint(3, "Creating reactants")
-        self.reactants = mixture(args.reactants)
+        self.reactants = Mixture(settings.reactant_filenames)
         oprint(3, "Creating products")
-        self.products = mixture(args.products)
+        self.products = Mixture(settings.product_filenames)
 
-class mixture(object):
+class Mixture(object):
     """
-    mixture(filenames)
+    Mixture(filenames)
 
     Collection of one or several molecules.
 
@@ -57,9 +59,9 @@ class mixture(object):
 
         molecules = []
         for filename in self.filenames:
-            if args.print_level == 3:
+            if settings.print_level == 3:
                 print "Creating molecule from %s" % filename
-            mol = molecule(filename)
+            mol = Molecule(filename)
             quit()
             # If there are disconnected atoms in the molecule
             # split the molecules to separate objects
@@ -67,7 +69,7 @@ class mixture(object):
             molecules.extend(mols)
         return molecules
 
-class molecule(object):
+class Molecule(object):
     """
     molecule(filename)
 
@@ -101,7 +103,7 @@ class molecule(object):
         self.atomnames, self.coordinates = read_coordinates(self.filename)
         self.size = self.atomnames.size
         self.distance_matrix = self.get_distance(self.coordinates[None,:,:],self.coordinates[:,None,:])
-        self.monovalent = np.in1d(self.atomnames,definitions.monovalent,invert=False)
+        self.monovalent = np.in1d(self.atomnames,constants.monovalent,invert=False)
         self.atoms = self.make_atoms()
         self.find_bonds()
         quit()
@@ -142,7 +144,7 @@ class molecule(object):
         """
         atoms = np.empty(self.size, dtype=object)
         for i in range(self.size):
-            atoms[i] = atom(i,self)
+            atoms[i] = Atom(i,self)
         return atoms
 
     def find_bonds(self):
@@ -164,7 +166,7 @@ class molecule(object):
         pair_distances = self.distance_matrix[pair_indices]
 
         # create arrays of typical bond length limits (size 4 x n_pairs)
-        limits = np.asarray([definitions.bond_length_limits[(self.atomnames[i],self.atomnames[j])] for i,j in zip(*pair_indices)]
+        limits = np.asarray([constants.bond_length_limits[(self.atomnames[i],self.atomnames[j])] for i,j in zip(*pair_indices)]
                             , dtype=float).T
 
         # bonds within the 'usual' range
@@ -185,7 +187,7 @@ class molecule(object):
         self.check_bonds(less_credible_bond_indices)
         quit()
 
-    def check_bonds(bond_indices, subset = None):
+    def check_bonds(self, bond_indices, subset = None):
         if subset == None:
             subset = np.arange(self.size)
 
@@ -210,7 +212,7 @@ class molecule(object):
                     if index1 == atom.index and self.atoms[index2].validated == False:
                         pass
 
-class atom(object):
+class Atom(object):
     """
     atom(index, molecule)
 
