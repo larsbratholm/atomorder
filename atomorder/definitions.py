@@ -1,3 +1,4 @@
+import numpy as np
 
 class Constants(object):
     """
@@ -16,6 +17,7 @@ class Constants(object):
         Monovalent atom types
 
     """
+    # TODO replace this with a hidden markov model or similar
     def __init__(self):
 
         # Found from analyzing the CCDC 2016 database.
@@ -77,20 +79,52 @@ class Constants(object):
         for key, value in self.bond_length_limits.items():
             self.bond_length_limits[key[::-1]] = value
 
-        # number of bonds each atom type commonly form
-        self.number_bonds = {"As": [3,4],
-                        "Br": [1],
-                        "C" : [2,3,4],
-                        "Cl": [1],
-                        "F" : [1],
-                        "H" : [1],
-                        "I" : [1],
-                        "N" : [1,2,3,4],
-                        "O" : [1,2],
-                        "P" : [3],
-                        "S" : [1,2,3,4]
-                        }
-        
+        # Number of bonds each atom type commonly form
+        # Doubles as list of atom types implemented
+        self.number_bonds = {"As": np.asarray( [3,4]    , dtype=int) ,
+                             "Br": np.asarray( [1]      , dtype=int) ,
+                             "C" : np.asarray( [2,3,4]  , dtype=int) ,
+                             "Cl": np.asarray( [1]      , dtype=int) ,
+                             "F" : np.asarray( [1]      , dtype=int) ,
+                             "H" : np.asarray( [1]      , dtype=int) ,
+                             "I" : np.asarray( [1]      , dtype=int) ,
+                             "N" : np.asarray( [1,2,3,4], dtype=int) ,
+                             "O" : np.asarray( [1,2]    , dtype=int) ,
+                             "P" : np.asarray( [3]      , dtype=int) ,
+                             "S" : np.asarray( [1,2,3,4], dtype=int)
+                             }
+
         # monovalent atoms
         self.monovalent = ["Br","Cl","F","H","I"]
 
+class Settings(object):
+    """
+    Settings()
+
+    General settings
+
+
+    Attributes
+    ----------
+    reactant_filenames: list
+        Coordinate files for reactants
+    product_filenames: list
+        Coordinate files for products
+
+    """
+    def __init__(self):
+        self.reactant_filenames = [None]
+        self.product_filenames = [None]
+        self.print_level = 1
+        self.file_format = None
+
+    def update(self, args):
+        """
+        Update the object from parsed command line arguments
+
+        """
+
+        self.reactant_filenames = args.reactants
+        self.product_filenames = args.products
+        self.print_level = args.print_level
+        self.file_format = args.format

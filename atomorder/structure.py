@@ -1,7 +1,8 @@
-from .utils import oprint, eprint
-import atomorder
-from . import settings, constants
 import numpy as np
+import itertools
+import warnings
+from . import settings, constants, utils
+from .utils import oprint, eprint
 
 class Reaction(object):
     """
@@ -60,12 +61,12 @@ class Mixture(object):
         molecules = []
         for filename in self.filenames:
             if settings.print_level == 3:
-                print "Creating molecule from %s" % filename
+                oprint(3, "Creating molecule from %s" % filename)
             mol = Molecule(filename)
             quit()
             # If there are disconnected atoms in the molecule
             # split the molecules to separate objects
-            mols = molecule.split()
+            mols = mol.split()
             molecules.extend(mols)
         return molecules
 
@@ -84,7 +85,7 @@ class Molecule(object):
     ---------
     filename: string
         Coordinate filename
-    atomnames: array_like
+    element_symbols: array_like
         N-size array of names of the molecule atoms
         e.g. ['H', 'C']
     coordinates: array_like
@@ -100,17 +101,37 @@ class Molecule(object):
 
     def __init__(self, filename):
         self.filename = filename
-        self.atomnames, self.coordinates = read_coordinates(self.filename)
-        self.size = self.atomnames.size
-        self.distance_matrix = self.get_distance(self.coordinates[None,:,:],self.coordinates[:,None,:])
-        self.monovalent = np.in1d(self.atomnames,constants.monovalent,invert=False)
+        self.element_symbols, self.coordinates = read_coordinates(self.filename)
+        self.size = self.element_symbols.size
+        self.distance_matrix = self.get_distance_matrix()
+        self.monovalent = self.get_monovalent_indices()
         self.atoms = self.make_atoms()
         self.find_bonds()
+        self.get_sybyl_types()
         quit()
-        #self.get_bond_details()
-        #self.make_graph()
+        #TODO sybyl types
+        #TODO single/double/triple bond? - iterative from sybyl
         # TODO make bond2
+        # TODO split
+        #self.make_graph() - move?
 
+    def get_sybyl_types(self):
+        """
+        Set sybyl atom types.
+
+        """
+
+        for atom in self.atoms:
+            atom.get_sybyl_type()
+
+
+    def get_distance_matrix(self):
+        return utils.get_distance(self.coordinates[None,:,:],self.coordinates[:,None,:], axis = -1)
+
+    def get_monovalent_indices(self):
+        return np.in1d(self.element_symbols, constants.monovalent, invert = False)
+
+    # TODO
     def split(self):
         """
         split()
@@ -125,15 +146,10 @@ class Molecule(object):
             one or more molecule objects
         """
 
-        # TODO
 
-    def get_distance(self, x, y, axis = -1):
-        return np.sum((x-y)**2, axis=axis)**0.5
 
     def make_atoms(self):
         """
-        make_atoms()
-
         Make array of atom objects
 
         Returns
@@ -143,19 +159,19 @@ class Molecule(object):
 
         """
         atoms = np.empty(self.size, dtype=object)
-        for i in range(self.size):
+        for i in xrange(self.size):
             atoms[i] = Atom(i,self)
         return atoms
 
     def find_bonds(self):
         """
-        find_bonds()
-
         Determine which atoms form bonds.
         Credible bond lengths, bond angles and out of plane bending
         are taken from the CCDC 2016 database.
 
         """
+
+        oprint(3, "Locating bonded atom pairs")
 
         # To avoid redundancy, only analyze unique pairs
         pair_indices = np.triu_indices(self.size, 1)
@@ -166,12 +182,13 @@ class Molecule(object):
         pair_distances = self.distance_matrix[pair_indices]
 
         # create arrays of typical bond length limits (size 4 x n_pairs)
-        limits = np.asarray([constants.bond_length_limits[(self.atomnames[i],self.atomnames[j])] for i,j in zip(*pair_indices)]
+        limits = np.asarray([constants.bond_length_limits[(self.element_symbols[i],self.element_symbols[j])] for i,j in zip(*pair_indices)]
                             , dtype=float).T
 
         # bonds within the 'usual' range
         credible_bonds = (pair_distances >= limits[1]) & (pair_distances <= limits[2])
 
+        # NOTE: could probably do without the less_credible_bonds range, but shouldn't be a bottleneck of any sorts
         # bonds outside the usual range but within a looser restricted range
         less_credible_bonds = (~credible_bonds) & (pair_distances >= limits[0]) & (pair_distances <= limits[3])
 
@@ -185,32 +202,83 @@ class Molecule(object):
 
         # Check that all atoms have a realistic set of bonds
         self.check_bonds(less_credible_bond_indices)
-        quit()
 
     def check_bonds(self, bond_indices, subset = None):
+        """
+        Checks to assert that the bonds are not abnormal.
+        If any bonds are missing for a physically correct structure,
+        then check within the looser credible range interval.
+
+        Parameters:
+        -----------
+        bond_indices: tuple
+            Indices outside the credible bond length range
+            but within the less credible (but still realistic) range.
+
+        """
+
+        # Indices to be checked in the next iteration
+        next_subset = []
+
         if subset == None:
             subset = np.arange(self.size)
 
+        # TODO redo when better criteria is added
         # check all atoms, or a subset of atoms
         for atom in self.atoms[subset]:
             n_bonds = len(atom.bonded_atom_indices)
-            status = atom.check_planarity(n_bonds) #TODO both too many and too few?
-            status = False # TODO remove this
-            if status:
-                # flag the atom as validated
-                atom.validate()
-                continue
-            else:
+
+            # check if the number of bonds is a valid value
+            num_bonds_check = atom.check_bond_count(n_bonds)
+            # OK
+            if num_bonds_check == 0:
+                pass
+            # missing bond(s)
+            elif num_bonds_check < 0:
+
                 # check if any bonds can be formed outside the usual
                 # range, that can make the number of bonds and bond
                 # angles consistent
 
                 # go through any possible bond that the current atom
-                # can be involved
+                # can be involved in
                 for index1, index2 in bond_indices:
                     # only need to check index1, as index1 is always less than index2
-                    if index1 == atom.index and self.atoms[index2].validated == False:
-                        pass
+                    # TODO: double check that the second equality is not too restrictive
+                    if index1 < atom.index:
+                        continue
+                    elif index1 == atom.index and self.atoms[index2].validated == False:
+                        atom.bonded_atom_indices.append(index2)
+                        self.atoms[index2].bonded_atom_indices.append(index1)
+
+                        next_subset.extend([index1,index2])
+                        break
+                    else:
+                        eprint(2, "WARNING: Unusual number of bonds to atom %s" % atom.index)
+                        break
+                continue
+            # extra bond(s)
+            else:
+                # TODO implement solution
+                eprint(2, "WARNING: Unusual number of bonds to atom %s" % atom.index)
+
+            #status = atom.check_planarity(n_bonds) #TODO both too many and too few?
+
+            # flag the atom as validated
+            # TODO update if extra conditions are added
+            atom.validate()
+
+        # reiterate with non-validated atoms if needed:
+        if len(next_subset) > 0:
+            self.check_bonds(bond_indices, subset = next_subset)
+
+        else:
+            # warning if not all atoms are validated
+            for atom in self.atoms:
+                if atom.validated == False:
+                    eprint(2, "WARNING: something's off with the geometry of atom %s" % atom.index)
+
+
 
 class Atom(object):
     """
@@ -221,11 +289,11 @@ class Atom(object):
     index: integer
         index of atom in the coordinate file
     molecule: object
-        molecule object
+        Molecule object
 
     Attributes
     ----------
-    atype: string
+    element_symbol: string
         atomtype, e.g. 'H' or 'Cl'
     molecule_index: integer
         index of atom in the molecule
@@ -233,6 +301,8 @@ class Atom(object):
         index of atom in the mixture
     coordinates: array-like
         3-sized array of euclidian coordinates
+    relative_normed_coordinates: array-like
+        Nx3 sized array of normed direction vectors
     distances: array-like
         N-sized array of euclidean distances between the atom and all
         atoms in the molecule.
@@ -241,30 +311,124 @@ class Atom(object):
         with the atom. The list is pruned to be consistent if an excess
         number of atoms are within the bond length cut-off.
     validated: bool
-        Wether the atom has passed consistency checks on bond lengths and angles
+        Whether the atom has passed consistency checks on bond lengths and angles
+    sybyl: string
+        Sybyl atom type
+    num_bonds: int
+        number of bonded atoms
 
     """
 
     def __init__(self, index, molecule):
-        self.atomtype = molecule.atomnames[index]
+        self.element_symbol = molecule.element_symbols[index]
         self.molecule_index = index
         self.mixture_index = None
         self.coordinates = molecule.coordinates[index]
         self.distances = molecule.distance_matrix[index]
+        self.relative_normed_coordinates = self.get_relative_normed_coordinates(molecule)
         self.bonded_atom_indices = []
         self.validated = False
+        self.sybyl = self.element_symbol
+        self.num_bond = 0
+
+    def set_sybyl_type(self, s):
+        self.sybyl = s
+
+    def get_sybyl_type(
+
+    def get_relative_normed_coordinates(self, molecule):
+        # ignore divide by zero warning
+        #with warnings.catch_warnings():
+        #    warnings.filterwarnings("ignore", r'invalid value encountered in divide')
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return (molecule.coordinates - self.coordinates[None,:]) / self.distances[:,None]
 
     def set_mixture_index(self, index):
         self.mixture_index = index
+
+    # TODO: Less ugly returns
+    def check_bond_count(self, n_bonds):
+        if self.element_symbol not in constants.number_bonds:
+            eprint(2, "WARNING: element %s not completely implemented, but ordering should still work")
+            return True
+        possible_num_bonds = constants.number_bonds[self.element_symbol]
+        # return 0 if passed check. 1 if theres too many bonds. -1 if theres too few.
+        if n_bonds in possible_num_bonds: return 0
+        if n_bonds < possible_num_bonds.min(): return possible_num_bonds.min() - n_bonds
+        if n_bonds > possible_num_bonds.max(): return n_bonds - possible_num_bonds.max()
+
 
     def set_molecule_index(self, index):
         self.molecule_index = index
 
     def add_bond(self, atom):
         self.bonded_atom_indices.append(atom)
+        self.num_bond += 1
 
     def validate(self):
         self.validated = True
+
+    def get_bond_distances(self):
+        return [self.distances[i] for i in self.bonded_atom_indices]
+
+    def get_average_bond_angle(self):
+        bond_angles = self.get_bond_angles()
+        return np.mean(bond_angles)
+
+    def get_bond_angles(self):
+        # http://stackoverflow.com/a/13849249
+        def angle_v(v1,v2):
+            return np.arccos(np.clip(np.dot(v1, v2), -1.0, 1.0))
+
+        angles = []
+        pair_iterator = itertools.combinations(self.bonded_atom_indices,2)
+        for i,j in pair_iterator:
+            v1 = self.relative_normed_coordinates[i]
+            v2 = self.relative_normed_coordinates[j]
+            angle = angle_v(v1,v2) * (180/np.pi)
+            # TODO remove at release
+            assert(angle >= 0)
+            assert(angle <= 180)
+
+            angles.append(angle)
+
+        return angles
+
+
+
+
+    # p1 central point
+    def angle_p(p):
+        p1,p2,p3 = p
+        d12 = sum((p1-p2)**2)
+        d13 = sum((p1-p3)**2)
+        d23 = sum((p2-p3)**2)
+        max_idx = np.argmax([d12,d13,d23])
+        if max_idx == 0:
+            v1 = p1-p3
+            v2 = p2-p3
+        elif max_idx == 1:
+            v1 = p1 - p2
+            v2 = p3 - p2
+        else:
+            v1 = p2 - p1
+            v2 = p3 - p1
+        return angle_v(v1,v2)*(180/np.pi)
+
+    #def get_distance(self, x, axis = -1):
+    #    """
+    #    Returns distance between the atom and a set of coordinates
+    #    or an atom index, depending on type
+
+    #    Parameters:
+    #    -----------
+    #    x: array or index
+    #        coordinates or coordinate index
+
+    #    """
+    #    try:
+    #        return self.distances
+    #    except TypeError
 
 def read_coordinates(filename, format_ = "guess"):
     """
@@ -301,7 +465,7 @@ def read_coordinates_xyz(filename):
     Returns
     -------
     atoms: array-like
-        N-sized array of atomtypes, e.g. ['H','C']
+        N-sized array of element symbols, e.g. ['H','C']
     coordinates: array-like
         Nx3-sized array of euclidian coordinates
 
@@ -338,7 +502,7 @@ def get_coordinates_pdb(filename):
     Returns
     -------
     atoms: array-like
-        N-sized array of atomtypes, e.g. ['H','C']
+        N-sized array of element_symbols, e.g. ['H','C']
     coordinates: array-like
         Nx3-sized array of euclidian coordinates
 
@@ -351,7 +515,7 @@ def get_coordinates_pdb(filename):
     x_column = None
     coordinates = []
     # Same with atoms and atom naming. The most robust way to do this is probably
-    # to assume that the atomtype can be inferred from the atomname given in column 3.
+    # to assume that the element symbol can be inferred from the element symbol given in column 3.
     atoms = []
     with open(filename) as f:
         lines = f.readlines()
@@ -360,7 +524,7 @@ def get_coordinates_pdb(filename):
                 break
             if line.startswith("ATOM"):
                 tokens = line.split()
-                # Try to get the atomtype
+                # Try to get the element symbol
                 try:
                     atom = tokens[2][0]
                     if atom in ["H", "C", "N", "O", "S", "P"]:
@@ -370,9 +534,9 @@ def get_coordinates_pdb(filename):
                         if atom in ["H", "C", "N", "O", "S", "P"]:
                             atoms.append(atom)
                         else:
-                            exit("Error parsing atomtype for the following line: \n%s" % line)
+                            exit("Error parsing element symbol for the following line: \n%s" % line)
                 except IndexError:
-                        exit("Error parsing atomtype for the following line: \n%s" % line)
+                        exit("Error parsing element symbol for the following line: \n%s" % line)
 
                 if x_column == None:
                     try:
@@ -399,6 +563,6 @@ def get_coordinates_pdb(filename):
     coordinates = np.asarray(V)
     atoms = np.asarray(atoms)
     if coordinates.shape[0] != atoms.size:
-        error("Mismatch in number of parsed atomtypes (%d) and number of parsed coordinates (%d) from PDB file: %s" \
+        error("Mismatch in number of parsed element symbols (%d) and number of parsed coordinates (%d) from PDB file: %s" \
                 % (coordinates.shape[0], atoms.size, filename))
     return atoms, coordinates

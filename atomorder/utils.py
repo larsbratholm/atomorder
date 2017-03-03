@@ -3,6 +3,7 @@ import __builtin__
 import sys
 import argparse
 from . import settings
+import numpy as np
 
 def oprint(level, string):
     """
@@ -21,7 +22,7 @@ def oprint(level, string):
         __builtin__.print(string)
 
 def eprint(level, string):
-    """
+    """ 
     Helper for printing to stderr
 
     Parameters
@@ -53,8 +54,6 @@ def get_csd_atom_type(atom):
         sybyl atom type
 
     """
-
-    # TODO name->element_symbol
 
     # 2.2 If element_symbol is D then atom_type is H
     if atom.element_symbol == "D":
@@ -96,7 +95,7 @@ def get_csd_atom_type_C(atom):
     # 2.5.2 If num_bond .eq. 1 then calculate bond_distance
     if atom.num_bond == 1:
         # TODO calc bond distance
-        bond_distance = None
+        bond_distance = atom.get_bond_distances()[0]
 
         # 2.5.2.1 If bond_distance .gt. 1.41A then atom_type is C.3
         if bond_distance > 1.41: return "C.3"
@@ -105,8 +104,7 @@ def get_csd_atom_type_C(atom):
         # 2.5.2.3 If bond_distance is none of the above then atom_type is C.2
         return "C.2"
     # 2.5.3 If element_symbol is C and none of the above then calculate average_angle about C
-    # TODO calc average angle
-    average_angle = None
+    average_angle = atom.get_average_bond_angle()
     # 2.5.3.1 If average_angle .le. 115 deg then atom_type is C.3
     if average_angle <= 115: return "C.3"
     # 2.5.3.2 If average_angle .gt. 160 deg then atom_type is C.1
@@ -257,9 +255,13 @@ def parse_args():
     parser.add_argument('-f', '--format', help='File format', type=str, action='store', default='guess', choices=["guess","xyz","pdb"])
     # TODO output atom mapping oneline, save reordered products
     # TODO parameter object
+    # TODO allow possibility to give pickle with reaction object
+    # TODO output sybyl
 
     args = parser.parse_args()
 
     # override setting defaults
     settings.update(args)
 
+def get_distance(x, y, axis):
+    return np.sum((x-y)**2, axis=axis)**0.5
