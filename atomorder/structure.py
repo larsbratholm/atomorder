@@ -2,7 +2,7 @@ import numpy as np
 import itertools
 import warnings
 from . import settings, constants, utils
-from .utils import oprint, eprint
+from .utils import oprint, eprint, read_coordinates
 
 class Reaction(object):
     """
@@ -96,6 +96,10 @@ class Molecule(object):
         NxN-size array with inter-atom distances.
     monovalent: array_like
         Indices of monovalent atoms
+    atoms: array_like
+        atoms in the molecule
+    bonds: array_like
+        bonds in the molecule
 
     """
 
@@ -106,14 +110,28 @@ class Molecule(object):
         self.distance_matrix = self.get_distance_matrix()
         self.monovalent = self.get_monovalent_indices()
         self.atoms = self.make_atoms()
-        self.find_bonds()
-        self.get_sybyl_types()
+        self.bonds = self.find_bonds()
         quit()
-        #TODO sybyl types
-        #TODO single/double/triple bond? - iterative from sybyl
+        self.get_sybyl_types()
+        self.get_bond_order()
+        # TODO add matched sybyl type check
+        quit()
         # TODO make bond2
         # TODO split
         #self.make_graph() - move?
+
+    def get_bond_order(self):
+        """
+        Find which bonds are single/double/triple/aromatic etc. self consistently.
+        This is done by assigning electrons not forming sigma bonds to pi bonds
+        or lone pairs (charges).
+
+        """
+
+        # Generate list of all non-sigma electrons and
+        # list of 
+
+
 
     def get_sybyl_types(self):
         """
@@ -124,7 +142,6 @@ class Molecule(object):
         for atom in self.atoms:
             atom.get_sybyl_type()
 
-
     def get_distance_matrix(self):
         return utils.get_distance(self.coordinates[None,:,:],self.coordinates[:,None,:], axis = -1)
 
@@ -132,21 +149,19 @@ class Molecule(object):
         return np.in1d(self.element_symbols, constants.monovalent, invert = False)
 
     # TODO
-    def split(self):
-        """
-        split()
+    #def split(self):
+    #    """
+    #    split()
 
-        Splits the molecule into several molecule objects if two or more
-        disconnected regions are present (e.g. ligands or several reactants
-        in the same file)
+    #    Splits the molecule into several molecule objects if two or more
+    #    disconnected regions are present (e.g. ligands or several reactants
+    #    in the same file)
 
-        Returns
-        -------
-        molecules: tuple
-            one or more molecule objects
-        """
-
-
+    #    Returns
+    #    -------
+    #    molecules: tuple
+    #        one or more molecule objects
+    #    """
 
     def make_atoms(self):
         """
@@ -155,9 +170,12 @@ class Molecule(object):
         Returns
         -------
         atoms: array-like
-            atom objects
+            Atom objects
 
         """
+
+        oprint(3, "Creating atoms")
+
         atoms = np.empty(self.size, dtype=object)
         for i in xrange(self.size):
             atoms[i] = Atom(i,self)
@@ -171,7 +189,7 @@ class Molecule(object):
 
         """
 
-        oprint(3, "Locating bonded atom pairs")
+        oprint(3, "Locating covalent bonds")
 
         # To avoid redundancy, only analyze unique pairs
         pair_indices = np.triu_indices(self.size, 1)
@@ -197,11 +215,21 @@ class Molecule(object):
 
         # Associate the bonds with the involved atoms
         for index1, index2 in credible_bond_indices:
-            self.atoms[index1].add_bond(index2)
-            self.atoms[index2].add_bond(index1)
+            self.add_bond(index1, index2)
+        quit()
 
         # Check that all atoms have a realistic set of bonds
+        # If not, try to add bonds between atoms from less_credible_bond_indices
+        # until everything looks fine
         self.check_bonds(less_credible_bond_indices)
+
+    def add_bond(self, index1, index2):
+        bond = Bond(index1, index2)
+        self.bonds.append(bond)
+        atom1 = self.atoms[index1]
+        atom2 = self.atoms[index2]
+        atom1.add_bond(atom2)
+        atom2.add_bond(atom1)
 
     def check_bonds(self, bond_indices, subset = None):
         """
@@ -245,22 +273,28 @@ class Molecule(object):
                 for index1, index2 in bond_indices:
                     # only need to check index1, as index1 is always less than index2
                     # TODO: double check that the second equality is not too restrictive
-                    if index1 < atom.index:
+                    if index1 < atom.molecule_index:
                         continue
-                    elif index1 == atom.index and self.atoms[index2].validated == False:
+                    elif index1 == atom.molecule_index and self.atoms[index2].validated == False:
                         atom.bonded_atom_indices.append(index2)
                         self.atoms[index2].bonded_atom_indices.append(index1)
 
                         next_subset.extend([index1,index2])
                         break
                     else:
-                        eprint(2, "WARNING: Unusual number of bonds to atom %s" % atom.index)
+                        eprint(2, "WARNING: Unusual number of bonds to atom %s" % atom.molecule_index)
                         break
                 continue
             # extra bond(s)
-            else:
+            elif num_bonds_check > 0:
                 # TODO implement solution
-                eprint(2, "WARNING: Unusual number of bonds to atom %s" % atom.index)
+                eprint(2, "WARNING: Unusual number of bonds to atom %s" % atom.molecule_index)
+                continue
+
+            # not implemented element / type
+            else:
+                continue
+
 
             #status = atom.check_planarity(n_bonds) #TODO both too many and too few?
 
@@ -276,13 +310,13 @@ class Molecule(object):
             # warning if not all atoms are validated
             for atom in self.atoms:
                 if atom.validated == False:
-                    eprint(2, "WARNING: something's off with the geometry of atom %s" % atom.index)
+                    eprint(2, "WARNING: something's off with the geometry of atom %s" % atom.molecule_index)
 
 
 
 class Atom(object):
     """
-    atom(index, molecule)
+    Atom(index, molecule)
 
     Parameters
     ----------
@@ -310,12 +344,16 @@ class Atom(object):
         Indices of atoms in the molecule that possibly form a covalent bond
         with the atom. The list is pruned to be consistent if an excess
         number of atoms are within the bond length cut-off.
+    bonded_atoms: list
+        Atoms with indices given by bonded_atom_indices
     validated: bool
         Whether the atom has passed consistency checks on bond lengths and angles
     sybyl: string
         Sybyl atom type
     num_bonds: int
         number of bonded atoms
+    charge: float
+        charge in fractions of plus/minus 1
 
     """
 
@@ -327,14 +365,184 @@ class Atom(object):
         self.distances = molecule.distance_matrix[index]
         self.relative_normed_coordinates = self.get_relative_normed_coordinates(molecule)
         self.bonded_atom_indices = []
+        self.bonded_atoms = []
         self.validated = False
         self.sybyl = self.element_symbol
         self.num_bond = 0
+        self.charge = 0
+
+    def set_bonded_atoms(self, molecule):
+        return [molecule.atoms[i] for i in self.bonded_atom_indices]
 
     def set_sybyl_type(self, s):
         self.sybyl = s
 
-    def get_sybyl_type(
+    def get_sybyl_type(self):
+        """
+        CSD non-matched (3d) deterministic sybyl atom type matching
+        from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
+        Comments refer to the definitions given from the above site
+
+        """
+
+        # 2.2 If element_symbol is D then atom_type is H
+        if self.element_symbol == "D":
+            sybyl = "H"
+        # 2.3 If element_symbol is P then atom_type is P.3
+        elif self.element_symbol == "P":
+            sybyl = "P.3"
+        # 2.5 If element_symbol is C then
+        elif self.element_symbol == "C":
+            sybyl = self.get_sybyl_type_C()
+        # 2.6 If element_symbol is O then
+        elif self.element_symbol == "O":
+            sybyl = self.get_sybyl_type_O()
+        # 2.7 If element_symbol is N then
+        elif self.element_symbol == "N":
+            sybyl = self.get_sybyl_type_N()
+        # 2.8 If element_symbol is S then
+        elif self.element_symbol == "S":
+            sybyl = self.get_sybyl_type_S()
+        # 2.10 If element_symbol is none of the above then atom_type is element_symbol
+        else:
+            sybyl = self.element_symbol
+
+        self.set_sybyl_type(sybyl)
+
+    def get_sybyl_type_C(self):
+        """
+        CSD non-matched (3d) deterministic sybyl atom type matching
+        from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
+
+        """
+
+        # 2.5.1 If num_bond .ge. 4 then atom_type is C.3
+        if self.num_bond >= 4: return "C.3"
+        # 2.5.2 If num_bond .eq. 1 then calculate bond_distance
+        if self.num_bond == 1:
+            bond_distance = self.get_bond_distances()[0]
+
+            # 2.5.2.1 If bond_distance .gt. 1.41A then atom_type is C.3
+            if bond_distance > 1.41: return "C.3"
+            # 2.5.2.2 If bond_distance .le. 1.22A then atom_type is C.1
+            if bond_distance <= 1.22: return "C.1"
+            # 2.5.2.3 If bond_distance is none of the above then atom_type is C.2
+            return "C.2"
+        # 2.5.3 If element_symbol is C and none of the above then calculate average_angle about C
+        average_angle = self.get_average_bond_angle()
+        # 2.5.3.1 If average_angle .le. 115 deg then atom_type is C.3
+        if average_angle <= 115: return "C.3"
+        # 2.5.3.2 If average_angle .gt. 160 deg then atom_type is C.1
+        if average_angle > 160: return "C.1"
+        # 2.5.3.3 If average_angle is none of the above then atom_type is C.2
+        return "C.2"
+
+    def get_sybyl_type_O(self):
+        """
+        CSD non-matched (3d) deterministic sybyl atom type matching
+        from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
+
+        """
+
+        # 2.6.1 If num_nonmet .eq. 1 then
+        if self.num_bond == 1:
+            # 2.6.1.1 If bond is to carbon .AND. carbon forms a total of 3
+            #         bonds, 2 of which are to an oxygen forming only 1
+            #         non-metal bond then atom_type is O.co2
+            neighbour = self.bonded_atoms[0]
+            if neighbour.element_symbol == "C" and neighbour.num_bond == 3:
+                for neighbours_neighbour in neighbour.bonded_atoms:
+                    if neighbours_neighbour.element_symbol == "O" and neighbours_neighbour.molecule_index != self.molecule_index \
+                            and this_neighbor.num_bond == 1:
+                        return "O.co2"
+            # 2.6.1.2 If bond is to phosphorus .AND. phosphorous forms at
+            #         least 2 bonds to an oxygen forming only 1 non-metal
+            #         bond then atom_type is O.co2
+            if neighbour.element_symbol == "P":
+                for neighbours_neighbour in neighbour.bonded_atoms:
+                    if neighbours_neighbour.element_symbol == "O" and neighbours_neighbour.molecule_index != self.molecule_index \
+                            and neighbours_neighbour.num_bond == 1:
+                        return "O.co2"
+        # 2.6.3 If num_bond .ge. 2 then atom_type is O.3
+        if self.num_bond >= 2: return "O.3"
+
+        # 2.6.4 If element_symbol is O and none of the above then atom_type is O.2
+        return "O.2"
+
+    def get_sybyl_type_N(self):
+        """
+        CSD non-matched (3d) deterministic sybyl atom type matching
+        from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
+
+        """
+
+        # 2.7.1 If num_nonmet .eq. 4 then atom_type is N.4
+        if self.num_bond == 4: return "N.4"
+
+        # 2.7.2 If num_nonmet .eq. 1 then calculate bond_distance
+        if self.num_bond == 1:
+            bond_distance = self.get_bond_distances()[0]
+
+            # 2.7.2.1 If bond_distance .le. 1.2A then atom_type is N.1
+            if bond_distance <= 1.2: return "N.1"
+
+            # 2.7.2.2 If bond_distance .gt. 1.2A then atom_type is N.3
+            return "N.3"
+
+        # 2.7.3 If num_nonmet .eq. 3 .AND. one bond is to C--O or C--S then atom_type is N.am
+        if self.num_bond == 3:
+            for neighbour in self.bonded_atoms:
+                if neighbour.element_symbol == "C":
+                    for neighbours_neighbour in neighbour.bonded_atoms:
+                        # At this stage it's not known if a bond is double or single
+                        # so just check that O and S only bonds to the parent carbon
+                        if neighbours_neighbor.element_symbol in ("O","S") and \
+                                this_neighbor.num_bond == 1:
+                                    return "N.am"
+            # 2.7.4 If num_nonmet .eq. 3 otherwise then calculate sum_of_angles around N
+            angle_sum = self.get_angle_sum()
+
+            # 2.7.4.1 If sum_of_angles .ge. 350 deg then atom_type is N.pl3
+            if angle_sum >= 350: return "N.pl3"
+            # 2.7.4.2 If sum_of_angles .lt. 350 deg then atom_type is N.3
+            return "N.3"
+
+        # 2.7.5 If element_symbol is N and none of the above then calculate average_angle about N
+        average_angle = self.get_average_angle()
+
+        # 2.7.5.1 If average_angle .gt. 160 deg then atom_type is N.1
+        if average_angle > 160: return "N.1"
+        # 2.7.5.2 If average_angle .le. 160 deg then atom_type is N.2
+        return "N.2"
+
+    def get_sybyl_type_S(self):
+        """
+        CSD non-matched (3d) deterministic sybyl atom type matching
+        from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
+
+        Parameters
+        ----------
+        atom: object
+            atom object
+
+        """
+
+        # 2.8.1 If num_nonmet .eq. 3 .AND. 1 bond is to an oxygen with only one
+        #       non-metal bond then atom_type is S.o
+        if self.num_bond == 3:
+            for neighbour in self.bonded_atoms:
+                if neighbour.element_symbol == "O" and neighbour.num_bond == 1: return "S.o"
+        # 2.8.2  If num_nonmet .eq. 4 .AND. 2 bonds are to an oxygen with only
+        #        one non-metal bond then atom_type is S.o2
+        if self.num_bond == 4:
+            count = 0
+            for neighbour in self.bonded_atoms:
+                if neighbour.element_symbol == "O" and neighbour.num_bond == 1: count += 1
+                if count == 2: return "S.o2"
+        # 2.8.3 If num_bond .ge. 2 then atom_type is S.3
+        if self.num_bond >= 2: return "S.3"
+        # 2.8.4 If element_symbol is S and none of the above then atom_type is S.2
+        return "S.2"
 
     def get_relative_normed_coordinates(self, molecule):
         # ignore divide by zero warning
@@ -357,12 +565,13 @@ class Atom(object):
         if n_bonds < possible_num_bonds.min(): return possible_num_bonds.min() - n_bonds
         if n_bonds > possible_num_bonds.max(): return n_bonds - possible_num_bonds.max()
 
-
     def set_molecule_index(self, index):
         self.molecule_index = index
 
-    def add_bond(self, atom):
-        self.bonded_atom_indices.append(atom)
+    def add_bond(self, bonded_atom):
+        bonded_atom_index = bonded_atom.molecule_index
+        self.bonded_atom_indices.append(bonded_atom_index)
+        self.bonded_atoms.append(bonded_atom)
         self.num_bond += 1
 
     def validate(self):
@@ -370,6 +579,10 @@ class Atom(object):
 
     def get_bond_distances(self):
         return [self.distances[i] for i in self.bonded_atom_indices]
+
+    def get_bond_angle_sum(self):
+        bond_angles = self.get_bond_angles()
+        return np.sum(bond_angles)
 
     def get_average_bond_angle(self):
         bond_angles = self.get_bond_angles()
@@ -394,175 +607,43 @@ class Atom(object):
 
         return angles
 
-
-
-
-    # p1 central point
-    def angle_p(p):
-        p1,p2,p3 = p
-        d12 = sum((p1-p2)**2)
-        d13 = sum((p1-p3)**2)
-        d23 = sum((p2-p3)**2)
-        max_idx = np.argmax([d12,d13,d23])
-        if max_idx == 0:
-            v1 = p1-p3
-            v2 = p2-p3
-        elif max_idx == 1:
-            v1 = p1 - p2
-            v2 = p3 - p2
-        else:
-            v1 = p2 - p1
-            v2 = p3 - p1
-        return angle_v(v1,v2)*(180/np.pi)
-
-    #def get_distance(self, x, axis = -1):
-    #    """
-    #    Returns distance between the atom and a set of coordinates
-    #    or an atom index, depending on type
-
-    #    Parameters:
-    #    -----------
-    #    x: array or index
-    #        coordinates or coordinate index
-
-    #    """
-    #    try:
-    #        return self.distances
-    #    except TypeError
-
-def read_coordinates(filename, format_ = "guess"):
+class Bond(object):
     """
-    Parses coordinates file
-
-    Parameters
-    ---------
-    filename: string
-        file name
-    format_: string
-        file format
-
-    """
-    # Guess from extension if file format is not given.
-    if format_ == "guess":
-        format_ = filename.split(".")[-1]
-
-    if format_ == "xyz":
-        return read_coordinates_xyz(filename)
-    elif self._format == "pdb":
-        return read_coordinates_pdb(filename)
-    else:
-        quit("Error: Unknown file format %s" % format_)
-
-def read_coordinates_xyz(filename):
-    """
-    Read and parse xyz coordinate file
+    Bond(atom1, atom2)
 
     Parameters
     ----------
-    filename: string
-        Coordinates filename
+    atom1: object
+        Atom object
+    atom2: object
+        Atom object
 
-    Returns
-    -------
-    atoms: array-like
-        N-sized array of element symbols, e.g. ['H','C']
-    coordinates: array-like
-        Nx3-sized array of euclidian coordinates
-
-    """
-    with open(filename) as f:
-        lines = f.readlines()
-        try:
-            n_atoms = int(lines[0])
-        except ValueError:
-            quit("Error reading XYZ-file. Expected no. of atoms in first line \
-                  of filefile. Got %s" % lines[0])
-        atoms = np.empty(n_atoms, dtype = np.str)
-        coordinates = np.zeros((n_atoms, 3), dtype = float)
-        for l, line in enumerate(lines[2:]):
-            try:
-                tokens = line.split()
-                atoms[l] = tokens[0]
-                coordinates[l] = np.asarray(tokens[1:4], dtype=float)
-            except IndexError, ValueError:
-                quit("Error reading line %d in inputfile %s: \n line %s" % (l+3, filename, line))
-    return atoms, coordinates
-
-def get_coordinates_pdb(filename):
-    """
-    get_coordinates_pdb(filename)
-
-    Get coordinates from the first chain in a pdb file
-
-    Parameters
+    Attributes
     ----------
-    filename: string
-        PDB3 filename
-
-    Returns
-    -------
-    atoms: array-like
-        N-sized array of element_symbols, e.g. ['H','C']
-    coordinates: array-like
-        Nx3-sized array of euclidian coordinates
+    is_type: string
+        What type of bond this is
+    can_be_single: bool
+        If the bond can be of type single
+    can_be_double: bool
+        If the bond can be of type double
+    can_be_triple: bool
+        If the bond can be of type triple
+    can_be_conjugated: bool
+        If the bond can be of type conjugated
+    atom1: object
+        Atom object
+    atom2: object
+        Atom object
+    molecule_index: int
+        index of bond in molecule
 
     """
-    # PDB files tend to be a bit of a mess. The x, y and z coordinates
-    # are supposed to be in column 31-38, 39-46 and 47-54, but this is not always the case.
-    # Because of this the three first columns containing a decimal is used.
-    # Since the format doesn't require a space between columns, we use the above
-    # column indices as a fallback.
-    x_column = None
-    coordinates = []
-    # Same with atoms and atom naming. The most robust way to do this is probably
-    # to assume that the element symbol can be inferred from the element symbol given in column 3.
-    atoms = []
-    with open(filename) as f:
-        lines = f.readlines()
-        for line in lines:
-            if line.startswith("TER") or line.startswith("END"):
-                break
-            if line.startswith("ATOM"):
-                tokens = line.split()
-                # Try to get the element symbol
-                try:
-                    atom = tokens[2][0]
-                    if atom in ["H", "C", "N", "O", "S", "P"]:
-                        atoms.append(atom)
-                    else:
-                        atom = tokens[2][1]
-                        if atom in ["H", "C", "N", "O", "S", "P"]:
-                            atoms.append(atom)
-                        else:
-                            exit("Error parsing element symbol for the following line: \n%s" % line)
-                except IndexError:
-                        exit("Error parsing element symbol for the following line: \n%s" % line)
-
-                if x_column == None:
-                    try:
-                        # look for x column
-                        for i, x in enumerate(tokens):
-                            if "." in x and "." in tokens[i+1] and "." in tokens[i+2]:
-                                x_column = i
-                                break
-                    except IndexError:
-                        exit("Error parsing coordinates for the following line: \n%s" % line)
-                # Try to read the coordinates
-                try:
-                    coordinates.append(np.asarray(tokens[x_column:x_column+3],dtype=float))
-                except:
-                    # If that doesn't work, use hardcoded indices
-                    try:
-                        x = line[30:38]
-                        y = line[38:46]
-                        z = line[46:54]
-                        coordinates.append(np.asarray([x,y,z],dtype=float))
-                    except IndexError, TypeError:
-                        exit("Error parsing input for the following line: \n%s" % line)
-
-    coordinates = np.asarray(V)
-    atoms = np.asarray(atoms)
-    if coordinates.shape[0] != atoms.size:
-        error("Mismatch in number of parsed element symbols (%d) and number of parsed coordinates (%d) from PDB file: %s" \
-                % (coordinates.shape[0], atoms.size, filename))
-    return atoms, coordinates
+    def __init__(self, atom1, atom2):
+        self.is_type = "Unknown"
+        self.can_be_single = True
+        self.can_be_double = True
+        self.can_be_triple = True
+        self.can_be_conjugated = True
+        self.atom1 = atom1
+        self.atom2 = atom2
+        self.molecule_index = None

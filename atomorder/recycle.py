@@ -624,3 +624,21 @@ def closest_nodes(nodes):
     deltas = nodes - node
     dist_2 = np.einsum('ij,ij->i', deltas, deltas)
     return np.argmin(dist_2)
+
+# p1 central point
+def angle_p(p):
+    p1,p2,p3 = p
+    d12 = sum((p1-p2)**2)
+    d13 = sum((p1-p3)**2)
+    d23 = sum((p2-p3)**2)
+    max_idx = np.argmax([d12,d13,d23])
+    if max_idx == 0:
+        v1 = p1-p3
+        v2 = p2-p3
+    elif max_idx == 1:
+        v1 = p1 - p2
+        v2 = p3 - p2
+    else:
+        v1 = p2 - p1
+        v2 = p3 - p1
+    return angle_v(v1,v2)*(180/np.pi)

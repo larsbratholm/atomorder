@@ -37,202 +37,6 @@ def eprint(level, string):
     if settings.print_level >= level:
         __builtin__.print(string, file = sys.stderr)
 
-def get_csd_atom_type(atom):
-    """
-    CSD non-matched (3d) deterministic sybyl atom type matching
-    from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
-    Comments refer to the definitions given from the above site
-
-    Parameters
-    ----------
-    atom: object
-        atom object
-
-    Returns
-    -------
-    sybyl: string
-        sybyl atom type
-
-    """
-
-    # 2.2 If element_symbol is D then atom_type is H
-    if atom.element_symbol == "D":
-        sybyl = "H"
-    # 2.3 If element_symbol is P then atom_type is P.3
-    elif atom.element_symbol == "P":
-        sybyl = "P.3"
-    # 2.5 If element_symbol is C then
-    elif atom.element_symbol == "C":
-        sybyl = get_csd_atom_type_C(atom)
-    # 2.6 If element_symbol is O then
-    elif atom.element_symbol == "O":
-        sybyl = get_csd_atom_type_O(atom)
-    # 2.7 If element_symbol is N then
-    elif atom.element_symbol == "N":
-        sybyl = get_csd_atom_type_N(atom)
-    # 2.8 If element_symbol is S then
-    elif atom.element_symbol == "S":
-        sybyl = get_csd_atom_type_S(atom)
-    # 2.10 If element_symbol is none of the above then atom_type is element_symbol
-    else:
-        sybyl = atom.element_symbol
-
-    return sybyl
-
-def get_csd_atom_type_C(atom):
-    """
-    CSD non-matched (3d) deterministic sybyl atom type matching
-    from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
-
-    Parameters
-    ----------
-    atom: object
-        atom object
-    """
-
-    # 2.5.1 If num_bond .ge. 4 then atom_type is C.3
-    if atom.num_bond >= 4: return "C.3"
-    # 2.5.2 If num_bond .eq. 1 then calculate bond_distance
-    if atom.num_bond == 1:
-        # TODO calc bond distance
-        bond_distance = atom.get_bond_distances()[0]
-
-        # 2.5.2.1 If bond_distance .gt. 1.41A then atom_type is C.3
-        if bond_distance > 1.41: return "C.3"
-        # 2.5.2.2 If bond_distance .le. 1.22A then atom_type is C.1
-        if bond_distance <= 1.22: return "C.1"
-        # 2.5.2.3 If bond_distance is none of the above then atom_type is C.2
-        return "C.2"
-    # 2.5.3 If element_symbol is C and none of the above then calculate average_angle about C
-    average_angle = atom.get_average_bond_angle()
-    # 2.5.3.1 If average_angle .le. 115 deg then atom_type is C.3
-    if average_angle <= 115: return "C.3"
-    # 2.5.3.2 If average_angle .gt. 160 deg then atom_type is C.1
-    if average_angle > 160: return "C.1"
-    # 2.5.3.3 If average_angle is none of the above then atom_type is C.2
-    return "C.2"
-
-def get_csd_atom_type_O(atom):
-    """
-    CSD non-matched (3d) deterministic sybyl atom type matching
-    from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
-
-    Parameters
-    ----------
-    atom: object
-        atom object
-
-    """
-
-    # 2.6.1 If num_nonmet .eq. 1 then
-    if atom.num_bond == 1:
-        # TODO get bonding partner this
-
-        # 2.6.1.1 If bond is to carbon .AND. carbon forms a total of 3
-        #         bonds, 2 of which are to an oxygen forming only 1
-        #         non-metal bond then atom_type is O.co2
-        if this.element_symbol == "C" and this.num_bonds == 3:
-            for this_neighbor in this.bonded: # TODO ?
-                # TODO ?
-                if this_neighbor.element_symbol == "O" and this_neighbor.id != this.id \
-                        and this_neighbor.num_bond == 1:
-                            return "O.co2"
-        # 2.6.1.2 If bond is to phosphorus .AND. phosphorous forms at 
-        #         least 2 bonds to an oxygen forming only 1 non-metal 
-        #         bond then atom_type is O.co2
-        if this.element_symbol == "P":
-            for this_neighbor in this.bonded:
-                if this_neighbor.element_symbol == "O" and this_neighbor.id != this.id \
-                        and this_neighbor.num_bond == 1:
-                            return "O.co2"
-    # 2.6.3 If num_bond .ge. 2 then atom_type is O.3
-    if atom.num_bond >= 2: return "O.3"
-
-    # 2.6.4 If element_symbol is O and none of the above then atom_type is O.2
-    return "O.2"
-
-def get_csd_atom_type_N(atom):
-    """
-    CSD non-matched (3d) deterministic sybyl atom type matching
-    from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
-
-    Parameters
-    ----------
-    atom: object
-        atom object
-
-    """
-
-    # 2.7.1 If num_nonmet .eq. 4 then atom_type is N.4
-    if atom.num_bond == 4: return "N.4"
-
-    # 2.7.2 If num_nonmet .eq. 1 then calculate bond_distance
-    if atom.num_bond == 1:
-        # TODO calc bond distance
-        bond_distance = None
-
-        # 2.7.2.1 If bond_distance .le. 1.2A then atom_type is N.1
-        if bond_distance >= 1.2: return "N.1"
-
-        # 2.7.2.2 If bond_distance .gt. 1.2A then atom_type is N.3
-        return "N.3"
-
-    # 2.7.3 If num_nonmet .eq. 3 .AND. one bond is to C--O or C--S then atom_type is N.am
-    if atom.num_bond == 3:
-        for this in atom.bonded:
-            if this.element_symbol == "C":
-                for this_neighbor in this.bonded:
-                    # At this stage it's not known if a bond is double or single
-                    # so just check that O and S only bonds to the parent carbon
-                    if this_neighbor.element_symbol in ("O","S") and \
-                            this_neighbor.num_bond == 1:
-                                return "N.am"
-            # 2.7.4 If num_nonmet .eq. 3 otherwise then calculate sum_of_angles around N
-            average_angle = None # TODO
-
-            # 2.7.4.1 If sum_of_angles .ge. 350 deg then atom_type is N.pl3
-            if average_angle >= 350: return "N.pl3"
-            # 2.7.4.2 If sum_of_angles .lt. 350 deg then atom_type is N.3
-            return "N.3"
-
-    # 2.7.5 If element_symbol is N and none of the above then calculate average_angle about N
-    # check if average_angles is already calculated
-    if average_angles not in locals():
-        average_angle = None # TODO
-
-    # 2.7.5.1 If average_angle .gt. 160 deg then atom_type is N.1
-    if average_angle > 160: return "N.1"
-    # 2.7.5.2 If average_angle .le. 160 deg then atom_type is N.2
-    return "N.2"
-
-def get_csd_atom_type_S(atom):
-    """
-    CSD non-matched (3d) deterministic sybyl atom type matching
-    from http://www.sdsc.edu/CCMS/Packages/cambridge/pluto/atom_types.html
-
-    Parameters
-    ----------
-    atom: object
-        atom object
-
-    """
-
-    # 2.8.1 If num_nonmet .eq. 3 .AND. 1 bond is to an oxygen with only one
-    #       non-metal bond then atom_type is S.o
-    if atom.num_bond == 3:
-        for this in atom.bonds:
-            if this.element_symbol == "O" and this.num_bond == 1: return "S.o"
-    # 2.8.2  If num_nonmet .eq. 4 .AND. 2 bonds are to an oxygen with only 
-    #        one non-metal bond then atom_type is S.o2
-    if atom.num_bond == 4:
-        count = 0
-        for this in atom.bonds:
-            if this.element_symbol == "O" and this.num_bond == 1: count += 1
-            if count == 2: return "S.o2"
-    # 2.8.3 If num_bond .ge. 2 then atom_type is S.3
-    if atom.num_bond >= 2: return "S.3"
-    # 2.8.4 If element_symbol is S and none of the above then atom_type is S.2
-    return "S.2"
 
 def parse_args():
     """
@@ -251,8 +55,9 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Fit probability density functions to data-files')
     parser.add_argument('-r', '--reactants', help='Reactant structures in a coordinate file format.', action='store', type=str, nargs='+')
     parser.add_argument('-p', '--products', help='Product structures in a coordinate file format.', action='store', type=str, nargs='+')
-    parser.add_argument('--print-level', help='Print-level.', type=int, action='store', default=1) # 0: quiet, 1: results and errors, 2: +warnings, 3: +progress, 4+: excess
+    parser.add_argument('--print-level', help='Print-level -  0: quiet, 1: results and errors, 2: +warnings, 3: +progress, 4+: excess', action='store', default=1, type=int) 
     parser.add_argument('-f', '--format', help='File format', type=str, action='store', default='guess', choices=["guess","xyz","pdb"])
+    parser.add_argument('--simple-rotate', help='Ignore bond order, align a single reactant and product molecule and match all atoms', action='store_true', default=False)
     # TODO output atom mapping oneline, save reordered products
     # TODO parameter object
     # TODO allow possibility to give pickle with reaction object
@@ -265,3 +70,277 @@ def parse_args():
 
 def get_distance(x, y, axis):
     return np.sum((x-y)**2, axis=axis)**0.5
+
+def read_coordinates(filename, format_ = "guess"):
+    """
+    Parses coordinates file
+
+    Parameters
+    ---------
+    filename: string
+        file name
+    format_: string
+        file format
+
+    """
+    # Guess from extension if file format is not given.
+    if format_ == "guess":
+        format_ = filename.split(".")[-1]
+
+    if format_ == "xyz":
+        return read_coordinates_xyz(filename)
+    elif self._format == "pdb":
+        return read_coordinates_pdb(filename)
+    else:
+        quit("Error: Unknown file format %s" % format_)
+
+def read_coordinates_xyz(filename):
+    """
+    Read and parse xyz coordinate file
+
+    Parameters
+    ----------
+    filename: string
+        Coordinates filename
+
+    Returns
+    -------
+    atoms: array-like
+        N-sized array of element symbols, e.g. ['H','C']
+    coordinates: array-like
+        Nx3-sized array of euclidian coordinates
+
+    """
+    with open(filename) as f:
+        lines = f.readlines()
+        try:
+            n_atoms = int(lines[0])
+        except ValueError:
+            quit("Error reading XYZ-file. Expected no. of atoms in first line \
+                  of filefile. Got %s" % lines[0])
+        atoms = np.empty(n_atoms, dtype = np.str)
+        coordinates = np.zeros((n_atoms, 3), dtype = float)
+        for l, line in enumerate(lines[2:]):
+            try:
+                tokens = line.split()
+                atoms[l] = tokens[0]
+                coordinates[l] = np.asarray(tokens[1:4], dtype=float)
+            except IndexError, ValueError:
+                quit("Error reading line %d in inputfile %s: \n line %s" % (l+3, filename, line))
+    return atoms, coordinates
+
+def get_coordinates_pdb(filename):
+    """
+    get_coordinates_pdb(filename)
+
+    Get coordinates from the first chain in a pdb file
+
+    Parameters
+    ----------
+    filename: string
+        PDB3 filename
+
+    Returns
+    -------
+    atoms: array-like
+        N-sized array of element_symbols, e.g. ['H','C']
+    coordinates: array-like
+        Nx3-sized array of euclidian coordinates
+
+    """
+    # PDB files tend to be a bit of a mess. The x, y and z coordinates
+    # are supposed to be in column 31-38, 39-46 and 47-54, but this is not always the case.
+    # Because of this the three first columns containing a decimal is used.
+    # Since the format doesn't require a space between columns, we use the above
+    # column indices as a fallback.
+    x_column = None
+    coordinates = []
+    # Same with atoms and atom naming. The most robust way to do this is probably
+    # to assume that the element symbol can be inferred from the element symbol given in column 3.
+    atoms = []
+    with open(filename) as f:
+        lines = f.readlines()
+        for line in lines:
+            if line.startswith("TER") or line.startswith("END"):
+                break
+            if line.startswith("ATOM"):
+                tokens = line.split()
+                # Try to get the element symbol
+                try:
+                    atom = tokens[2][0]
+                    if atom in ["H", "C", "N", "O", "S", "P"]:
+                        atoms.append(atom)
+                    else:
+                        atom = tokens[2][1]
+                        if atom in ["H", "C", "N", "O", "S", "P"]:
+                            atoms.append(atom)
+                        else:
+                            exit("Error parsing element symbol for the following line: \n%s" % line)
+                except IndexError:
+                        exit("Error parsing element symbol for the following line: \n%s" % line)
+
+                if x_column == None:
+                    try:
+                        # look for x column
+                        for i, x in enumerate(tokens):
+                            if "." in x and "." in tokens[i+1] and "." in tokens[i+2]:
+                                x_column = i
+                                break
+                    except IndexError:
+                        exit("Error parsing coordinates for the following line: \n%s" % line)
+                # Try to read the coordinates
+                try:
+                    coordinates.append(np.asarray(tokens[x_column:x_column+3],dtype=float))
+                except:
+                    # If that doesn't work, use hardcoded indices
+                    try:
+                        x = line[30:38]
+                        y = line[38:46]
+                        z = line[46:54]
+                        coordinates.append(np.asarray([x,y,z],dtype=float))
+                    except IndexError, TypeError:
+                        exit("Error parsing input for the following line: \n%s" % line)
+
+    coordinates = np.asarray(V)
+    atoms = np.asarray(atoms)
+    if coordinates.shape[0] != atoms.size:
+        error("Mismatch in number of parsed element symbols (%d) and number of parsed coordinates (%d) from PDB file: %s" \
+                % (coordinates.shape[0], atoms.size, filename))
+    return atoms, coordinates
+
+def read_coordinates(filename, format_ = "guess"):
+    """
+    Parses coordinates file
+
+    Parameters
+    ---------
+    filename: string
+        file name
+    format_: string
+        file format
+
+    """
+    # Guess from extension if file format is not given.
+    if format_ == "guess":
+        format_ = filename.split(".")[-1]
+
+    if format_ == "xyz":
+        return read_coordinates_xyz(filename)
+    elif self._format == "pdb":
+        return read_coordinates_pdb(filename)
+    else:
+        quit("Error: Unknown file format %s" % format_)
+
+def read_coordinates_xyz(filename):
+    """
+    Read and parse xyz coordinate file
+
+    Parameters
+    ----------
+    filename: string
+        Coordinates filename
+
+    Returns
+    -------
+    atoms: array-like
+        N-sized array of element symbols, e.g. ['H','C']
+    coordinates: array-like
+        Nx3-sized array of euclidian coordinates
+
+    """
+    with open(filename) as f:
+        lines = f.readlines()
+        try:
+            n_atoms = int(lines[0])
+        except ValueError:
+            quit("Error reading XYZ-file. Expected no. of atoms in first line \
+                  of filefile. Got %s" % lines[0])
+        atoms = np.empty(n_atoms, dtype = np.str)
+        coordinates = np.zeros((n_atoms, 3), dtype = float)
+        for l, line in enumerate(lines[2:]):
+            try:
+                tokens = line.split()
+                atoms[l] = tokens[0]
+                coordinates[l] = np.asarray(tokens[1:4], dtype=float)
+            except IndexError, ValueError:
+                quit("Error reading line %d in inputfile %s: \n line %s" % (l+3, filename, line))
+    return atoms, coordinates
+
+def get_coordinates_pdb(filename):
+    """
+    get_coordinates_pdb(filename)
+
+    Get coordinates from the first chain in a pdb file
+
+    Parameters
+    ----------
+    filename: string
+        PDB3 filename
+
+    Returns
+    -------
+    atoms: array-like
+        N-sized array of element_symbols, e.g. ['H','C']
+    coordinates: array-like
+        Nx3-sized array of euclidian coordinates
+
+    """
+    # PDB files tend to be a bit of a mess. The x, y and z coordinates
+    # are supposed to be in column 31-38, 39-46 and 47-54, but this is not always the case.
+    # Because of this the three first columns containing a decimal is used.
+    # Since the format doesn't require a space between columns, we use the above
+    # column indices as a fallback.
+    x_column = None
+    coordinates = []
+    # Same with atoms and atom naming. The most robust way to do this is probably
+    # to assume that the element symbol can be inferred from the element symbol given in column 3.
+    atoms = []
+    with open(filename) as f:
+        lines = f.readlines()
+        for line in lines:
+            if line.startswith("TER") or line.startswith("END"):
+                break
+            if line.startswith("ATOM"):
+                tokens = line.split()
+                # Try to get the element symbol
+                try:
+                    atom = tokens[2][0]
+                    if atom in ["H", "C", "N", "O", "S", "P"]:
+                        atoms.append(atom)
+                    else:
+                        atom = tokens[2][1]
+                        if atom in ["H", "C", "N", "O", "S", "P"]:
+                            atoms.append(atom)
+                        else:
+                            exit("Error parsing element symbol for the following line: \n%s" % line)
+                except IndexError:
+                        exit("Error parsing element symbol for the following line: \n%s" % line)
+
+                if x_column == None:
+                    try:
+                        # look for x column
+                        for i, x in enumerate(tokens):
+                            if "." in x and "." in tokens[i+1] and "." in tokens[i+2]:
+                                x_column = i
+                                break
+                    except IndexError:
+                        exit("Error parsing coordinates for the following line: \n%s" % line)
+                # Try to read the coordinates
+                try:
+                    coordinates.append(np.asarray(tokens[x_column:x_column+3],dtype=float))
+                except:
+                    # If that doesn't work, use hardcoded indices
+                    try:
+                        x = line[30:38]
+                        y = line[38:46]
+                        z = line[46:54]
+                        coordinates.append(np.asarray([x,y,z],dtype=float))
+                    except IndexError, TypeError:
+                        exit("Error parsing input for the following line: \n%s" % line)
+
+    coordinates = np.asarray(V)
+    atoms = np.asarray(atoms)
+    if coordinates.shape[0] != atoms.size:
+        error("Mismatch in number of parsed element symbols (%d) and number of parsed coordinates (%d) from PDB file: %s" \
+                % (coordinates.shape[0], atoms.size, filename))
+    return atoms, coordinates
