@@ -2,3 +2,4 @@ test
 stats
 validation
 *.pyc
+*.zip

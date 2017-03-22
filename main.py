@@ -1,13 +1,11 @@
 #!/usr/bin/env python2
 
-from atomorder import Reaction, parse_args
+from atomorder import parse_args, settings, Reaction, Ordering
+
 
 if __name__ == "__main__":
-
-    # call to overwrite default with given arguments
-    parse_args()
-    # parse structures and preprocess
-    r = Reaction()
-    # initialize optimization
-    # begin optimization
-    # post processing
+    # Create the structure objects of the
+    # reactants and products
+    reaction = Reaction()
+    # Do the atom assignment / ordering
+    Ordering(reaction)

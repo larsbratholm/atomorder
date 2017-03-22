@@ -75,9 +75,9 @@ class Constants(object):
         # didn't have many S-H hits, so guesstimate them
         self.bond_length_limits[("H","S")] = (1.2,1.3,1.4,1.5)
 
-        # make inverse atom order
-        for key, value in self.bond_length_limits.items():
-            self.bond_length_limits[key[::-1]] = value
+        ## make inverse atom order
+        #for key, value in self.bond_length_limits.items():
+        #    self.bond_length_limits[key[::-1]] = value
 
         # Number of bonds each atom type commonly form
         # Doubles as list of atom types implemented
@@ -89,17 +89,54 @@ class Constants(object):
                              "H" : np.asarray( [1]      , dtype=int) ,
                              "I" : np.asarray( [1]      , dtype=int) ,
                              "N" : np.asarray( [1,2,3,4], dtype=int) ,
-                             "O" : np.asarray( [1,2,3]    , dtype=int) ,
+                             "O" : np.asarray( [1,2,3]  , dtype=int) ,
                              "P" : np.asarray( [3]      , dtype=int) ,
                              "S" : np.asarray( [1,2,3,4], dtype=int)
                              }
-        # charge states
-        se
-
         # monovalent atoms
         self.monovalent = ["Br","Cl","F","H","D","I"]
 
-class Settings(object):
+        # Properties of different sybyl atom types for bonding
+        # This is for very internal use. Basically the properties are
+        # {num_bonds: (no. pi electrons, participating lone pairs, base charge)}
+        # (num_bonds + no_pi - charge) should equal the valency
+        # monovalent atoms is {1: (0,0,0)}
+        # TODO find a molecule with S.2 so I can understand how it works
+        self.sybyl_bonds = {
+                            "C.3"  : {4: (0,0,0)},
+                            "C.2"  : {3: (1,0,0)},
+                            "C.1"  : {2: (2,0,0)},
+                            "O.co2": {1: (1,1,0)},
+                            "O.3"  : {2: (0,0,0), 3: (0,0,+1)},
+                            "O.2"  : {1: (1,1,0)},
+                            "N.4"  : {4: (0,0,+1)},
+                            "N.3"  : {3: (0,0,0)},
+                            "N.2"  : {2: (1,0,0)},
+                            "N.am" : {3: (1,1,+1)},
+                            "N.pl3": {3: (1,1,+1)},
+                            "N.1"  : {1: (2,0,0), 2: (2,0,+1)},
+                            "S.o"  : {3: (0,0,+1)},
+                            "S.o2" : {4: (2,0,0)},
+                            "S.3"  : {2: (0,0,0)},
+                            "Br"   : {1: (0,0,0)},
+                            "Cl"   : {1: (0,0,0)},
+                            "F"    : {1: (0,0,0)},
+                            "I"    : {1: (0,0,0)},
+                            "H"    : {1: (0,0,0)},
+                            }
+
+    def get_bond_length_limits(self, element1, element2):
+        if element1 > element2:
+            element1, element2 = element2, element1
+
+        if (element1, element2) in self.bond_length_limits:
+            return self.bond_length_limits[(element1, element2)]
+
+        # Return limits such that no bonds are formed
+        # if the elements are not in self.bond_length_limits
+        return (0,0,0,0)
+
+ class Settings(object):
     """
     Settings()
 
@@ -120,7 +157,10 @@ class Settings(object):
         self.product_filenames = [None]
         self.print_level = 1
         self.file_format = None
-        self.simple_rotate = False
+        self.method = None
+        self.create_atoms = False
+        self.rotation_objective = False
+        self.bond_objective = False
 
     def update(self, args):
         """
@@ -132,4 +172,35 @@ class Settings(object):
         self.product_filenames = args.products
         self.print_level = args.print_level
         self.file_format = args.format
-        self.simple_rotate = args.simple_rotate
+        self.method = args.method
+
+        # Sets flags needed to define the pipeline of the method
+        self.construct_pipeline()
+
+     def construct_pipeline(self):
+        """
+        Sets flags needed to define the pipeline of the method
+
+        """
+
+        if self.method == "rotate":
+            self.create_atoms = False
+            self.rotation_objective = True
+            self.bond_objective = False
+
+        elif self.method == "full":
+            self.create_atoms = True
+            self.rotation_objective = True
+            self.bond_objective = True
+
+        elif self.method == "info":
+            self.create_atoms = True
+            self.rotation_objective = False
+            self.bond_objective = False
+
+        # sanity check override
+        if self.bond_objective == True:
+            self.create_atoms = True
+
+
+    # TODO add parameters in ordering algorithm
