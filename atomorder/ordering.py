@@ -9,6 +9,8 @@ import numpy as np
 from . import settings, objectives
 from .utils import oprint, eprint
 
+# TODO when the atoms much match, and there's the same number of atoms
+# the match matrix must be symmetric, and we only have to calculate the upper half
 class Ordering(object):
     """
     Ordering(reaction)
@@ -75,12 +77,12 @@ class Ordering(object):
         if settings.atomic_objective:
             obj.append(objectives.Atomic(self))
 
-        objectives.Bond(self)
+        if settings.bond_objective:
+            obj.append(objectives.Bond(self))
 
-        quit()
 
         # return function that returns the sum of all objective scoring functions
-        return (lambda x: sum((fun.score(x) for fun in obj)))
+        return (lambda x, obj=obj: sum((fun.score(x) for fun in obj)))
 
 
     def get_element_type_subset_indices(self):
@@ -168,23 +170,16 @@ class Ordering(object):
 
         """
 
-        if return_indices:
-            all_largest_row_indices = np.zeros(self.match_matrix.shape[0])
-        for indices in self.element_type_subset_indices:
-            M = self.match_matrix[indices]
+        M = self.match_matrix
 
-            # get indices of the largest values in each row
-            largest_row_indices = M.argmax(1)
-            if return_indices:
-                all_largest_row_indices[indices[1][0]] =  largest_row_indices
-                continue
-            # TODO add possibility for slack
-            unique_indices, counts = np.unique(largest_row_indices, return_counts=True)
-            if (counts == 1).all() == False:
-                return False
+        # get indices of the largest values in each row
+        largest_row_indices = M.argmax(1)
         if return_indices:
-            return all_largest_row_indices
-
+            return largest_row_indices
+        # TODO add possibility for slack
+        unique_indices, counts = np.unique(largest_row_indices, return_counts=True)
+        if (counts == 1).all() == False:
+            return False
         return True
 
     def softassign(self):
@@ -282,7 +277,7 @@ class Ordering(object):
 
         # begin Deterministic annealing
         for it in xrange(self.max_annealing_iterations):
-            if (it+1) % self.max_annealing_iterations/10 == 0 and it > 0:
+            if (it+1) % (self.max_annealing_iterations/100) == 0 and it > 0:
                 oprint(4, "On iteration %d of %d in deterministic annealing with convergence at %.2g of %.2g" % (it+1, self.max_annealing_iterations, row_l2_deviation, self.annealing_convergence_threshold))
 
             self.relaxation()
@@ -292,7 +287,7 @@ class Ordering(object):
             if row_l2_deviation < self.annealing_convergence_threshold and self.row_dominance():
                 print "pewpew"
                 print self.match_matrix.diagonal()
-                print self.match_matrix.diagonal().sum(), N
+                print self.match_matrix.diagonal().sum(), N, sum(self.match_matrix.diagonal() > 0.5)
                 rd = self.row_dominance(True)
 
                 M1 = np.eye(N, dtype=bool)
@@ -340,6 +335,8 @@ class Ordering(object):
             Q = self.score(self.match_matrix)
             # minimum in Q will be 0, so there's no risk of overflow in the exponential
             np.exp(-self.inverse_temperature*Q, out=self.match_matrix)
+            # TODO check if this changes anything
+            #self.match_matrix /= self.match_matrix.sum()**0.5
 
             self.softassign()
 

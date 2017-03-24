@@ -29,7 +29,8 @@ parser.add_argument('-m', '--method', help='Method to use.\n \
                                             info: Information about molecule sybyl atom types, bond types and conjugated sub systems',
                                             choices = ['rotate', 'full', 'info', 'no-bond'], action='store', default='full')
 parser.add_argument('-o', '--output', help='Given a filename, output the reordered product in xyz format instead of printing to stdout', action='store', type=str, default=sys.stdout)
-parser.add_argument('--weight', action='store', default=1, type=float)
+parser.add_argument('--atomic-sybyl-weight', action='store', default=1, type=float)
+parser.add_argument('--bond-weight', action='store', default=1, type=float)
 # TODO output to folder
 # TODO output atom mapping oneline, save reordered products
 # TODO allow possibility to give pickle with reaction object

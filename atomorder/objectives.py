@@ -8,6 +8,7 @@ all scoring functions (objectives)
 import numpy as np
 import scipy.optimize
 from . import settings
+import itertools
 
 # TODO options ignore monovalent / ignore hydrogens
 
@@ -364,7 +365,7 @@ class Atomic(object):
 
         """
 
-        # match matrix is only used for rotation, but is included as a parameter for convenience
+        # match matrix is not used for atomic terms, but is included as a parameter for convenience
 
         return self.score_matrix
 
@@ -378,9 +379,10 @@ class Bond(object):
 
     def __init__(self, M):
         self.M = M
-        self.score_matrix = self.get_score_matrix()
+        self.matrix_function = self.get_matrix_function()
+        self.evaluate_score_matrix_vect = np.vectorize(self.evaluate_score_matrix, otypes=[np.float], excluded=['match'])
 
-    def get_score_matrix(self):
+    def get_matrix_function(self):
 
         reactant_elements = self.M.reaction.reactants.element_symbols
         product_elements = self.M.reaction.products.element_symbols
@@ -388,7 +390,10 @@ class Bond(object):
         product_bond_matrix = self.M.reaction.products.bond_matrix
 
         # Construct a matrix function for easy evaluation of the objective
-        C = np.zeros(self.M.match_matrix.shape, dtype = object)
+        C = np.empty(self.M.match_matrix.shape, dtype = object)
+        # Fill it with functions that returns zero
+        for a,i in itertools.product(xrange(reactant_elements.size),xrange(product_elements.size)):
+            C[a,i] = lambda x: 0
 
         # temporary helper dict to construct the matrix
         pairs = {}
@@ -402,107 +407,15 @@ class Bond(object):
                     if (a,i) not in pairs: pairs[(a,i)] = []
                     pairs[a,i].append((b,j))
 
-        # construct the matrix function from the pairs
+        # construct the matrix function
         for (a,i), container in pairs.items():
-            C[a,i] = lambda x: np.sum((x[b,j] for (b,j) in container))
-            break
-        M = np.random.random(C.shape)
-        print M[6,2], M[8,2]
-        print C[a,i](M)
-        quit()
+            # y=container makes sure that the values of b,j can be used outside the local scope
+            C[a,i] = lambda x, y=container: np.sum((x[b,j] for (b,j) in y))
 
-        # This is Q where Q_ai = sum_bj M_bj * C_aibj
-        # find non zero indices for scoring
-        w1 = np.where(molP.bonds)
-        w2 = np.where(molQ.bonds)
-        # weird behavior of itertools.izip, so using zip
-        bonds1 = zip(*w1)
-        bonds2 = zip(*w2)
+        return C
 
-        idx_lookup = {}
-        for a,b in bonds1:
-            for i,j in bonds2:
-                if molP.atypes[a] == molQ.atypes[i] and molP.atypes[b] == molQ.atypes[j]:
-                    if (a,i) not in idx_lookup: idx_lookup[(a,i)] = []
-                    idx_lookup[(a,i)].append((b,j))
-
-        #if has_scipy:
-        C = scipy.sparse.dok_matrix((N**2,N**2), dtype=float)
-        #else:
-        #    C = np.zeros((N**2, N**2), dtype=float)
-    
-        for (a,i), v in idx_lookup.items():
-            for (b,j) in v:
-                C[(a*N+i, b*N+j)] = 1
-        #if has_scipy:
-        C = C.tocsr()
-        assert((C!=C.T).nnz == 0)
-        #else:
-        #    assert(np.allclose(C,C.T))
-
-        #if restrict == "CR":
-        #r1 = np.eye(N)-N**(-1) * np.ones((N,N))
-        #r2 = r1
-        #elif restrict == "C":
-        #    r1 = np.eye(N)-N**(-1) * np.ones((N,N))
-        #    r2 = np.eye(N)
-        #else:
-        r1 = np.eye(N)
-        r2 = r1
-
-        #if has_scipy:
-        R = scipy.sparse.kron(r1,r2) # only with column restriction
-        R = ((C.dot(R).T).dot(R.T)).T
-        l = scipy.sparse.linalg.eigsh(R, k=1, return_eigenvectors=False, which="SA", tol=1e-4)[0]
-        #else:
-        #    R = np.kron(r1,r2)
-        #    R = ((C.dot(R).T).dot(R.T)).T
-        #    l = np.linalg.eigvalsh(R)[0]
-
-
-        #if add_gamma:
-        #gamma = -l + eps_gamma
-        #else:
-        gamma = 0
-
-        #con = 0
-        #for j in range(N):
-        #    maxj = 0
-        #    for a,b in itertools.product(*([xrange(N)]*2)):
-        #        #diff = np.max(C[a*N+i, :] - C[b*N+i,:])
-        #        diff = np.max(molP.bonds[a,b]*molQ.bonds*f[a,:,None]*f[b,None,:])
-        #        if diff > maxj:
-        #            maxj = diff
-        #    con += maxj
-
-        #con2 = 0
-        #for j in range(molQ.size):
-        #    con2 += max(molQ.bonds[:,j].max()*max([molP.bonds[:,c].max() - molP.bonds[:,c].min() for c in range(molP.size)]),
-        #                molQ.bonds[:,j].min()*min([molP.bonds[:,c].min() - molP.bonds[:,c].max() for c in range(molP.size)]))
-        #assert(con == con2)
-    
-        con3 = np.sum(np.max(molQ.bonds[None,None,None,:,:]*f[None,None,:,None,:]*(molP.bonds[:,None,:,None,None]*f[:,None,None,:,None]-molP.bonds[None,:,:,None,None]*f[None,:,None,:,None]), axis=(0,1,2,3)))
-        con = con3
-        #assert(con3 == con)
-        #con4 = 0
-        #v = (molP.bonds[:,None,:,None]*f[:,None,None,:]-molP.bonds[None,:,:,None]*f[None,:,None,:])[:,:,:,:,None]
-        #for j in range(molQ.size):
-        #    con4 += np.max(molQ.bonds[None,None,None,:,j]*f[None,None,:,None,j]*v)
-    
-        #assert(con4 == con)
-
-        # the score matrix is created such that a perfect match is 0
-        # and imperfect matches are positive
-        score_matrix = np.zeros(self.M.match_matrix.shape)
-
-        # sybyl match matrix
-        score_matrix += settings.atomic_sybyl_weight * (self.M.reactants_sybyl_types[:, None] != self.M.products_sybyl_types[None,:])
-
-        # enforce that elements only match other elements of same type
-
-        score_matrix += 1e300 * (self.M.reactants_elements[:, None] != self.M.products_elements[None,:])
-
-        return score_matrix
+    def evaluate_score_matrix(self, a, i, match):
+        return self.matrix_function[a,i](match)
 
     def score(self, match):
         """
@@ -515,11 +428,11 @@ class Bond(object):
 
         Returns:
         --------
-        Score matrix
+        score_matrix
 
         """
 
-        # match matrix is only used for rotation, but is included as a parameter for convenience
+        score_matrix = -settings.bond_weight * np.fromfunction(self.evaluate_score_matrix_vect, match.shape, match=match, dtype=int)
 
-        return self.score_matrix
+        return score_matrix
 

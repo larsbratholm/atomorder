@@ -177,13 +177,14 @@ class Settings(object):
         # Sets flags needed to define the pipeline of the method
         self.construct_pipeline()
 
-        self.atomic_sybyl_weight = args.weight
+        self.atomic_sybyl_weight = args.atomic_sybyl_weight
+        self.bond_weight = args.bond_weight
         self.annealing_method = "multiplication" # multiplication/addition
-        self.initial_inverse_temperature = 1e-3
+        self.initial_inverse_temperature = 1e-2
         self.final_inverse_temperature = 1e3
         self.max_annealing_iterations = 10**4
-        self.max_relaxation_iterations = 10**4
-        self.max_softassign_iterations = 10**4
+        self.max_relaxation_iterations = 10**5
+        self.max_softassign_iterations = 10**5
         self.annealing_convergence_threshold = 1e-3
         self.relaxation_convergence_threshold = 1e-4
         self.softassign_convergence_threshold = 1e-4
