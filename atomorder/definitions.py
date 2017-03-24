@@ -136,7 +136,7 @@ class Constants(object):
         # if the elements are not in self.bond_length_limits
         return (0,0,0,0)
 
- class Settings(object):
+class Settings(object):
     """
     Settings()
 
@@ -177,30 +177,49 @@ class Constants(object):
         # Sets flags needed to define the pipeline of the method
         self.construct_pipeline()
 
-     def construct_pipeline(self):
+        self.atomic_sybyl_weight = args.weight
+        self.annealing_method = "multiplication" # multiplication/addition
+        self.initial_inverse_temperature = 1e-3
+        self.final_inverse_temperature = 1e3
+        self.max_annealing_iterations = 10**4
+        self.max_relaxation_iterations = 10**4
+        self.max_softassign_iterations = 10**4
+        self.annealing_convergence_threshold = 1e-3
+        self.relaxation_convergence_threshold = 1e-4
+        self.softassign_convergence_threshold = 1e-4
+
+    def construct_pipeline(self):
         """
         Sets flags needed to define the pipeline of the method
 
         """
 
         if self.method == "rotate":
-            self.create_atoms = False
             self.rotation_objective = True
+            self.atomic_objective = False
+            self.bond_objective = False
+
+        if self.method == "no-bond":
+            self.rotation_objective = True
+            self.atomic_objective = True
             self.bond_objective = False
 
         elif self.method == "full":
-            self.create_atoms = True
             self.rotation_objective = True
+            self.atomic_objective = True
             self.bond_objective = True
 
         elif self.method == "info":
             self.create_atoms = True
             self.rotation_objective = False
+            self.atomic_objective = False
             self.bond_objective = False
 
         # sanity check override
-        if self.bond_objective == True:
+        if self.bond_objective == True or self.atomic_objective == True:
             self.create_atoms = True
+
+        # TODO more bond
 
 
     # TODO add parameters in ordering algorithm

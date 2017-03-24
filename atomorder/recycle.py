@@ -270,3 +270,28 @@ def split(self):
 #        v1 = p2 - p1
 #        v2 = p3 - p1
 #    return angle_v(v1,v2)*(180/np.pi)
+
+
+    
+
+                #else: # check for symmetry
+                #    # check if there's values that are close to 0.5, which will be the case when there's symmetry
+                #    w2 = np.where((M - epsD**0.5 < 0.5) & (M + epsD**0.5 > 0.5))
+                #    pairs = np.asarray(zip(*w2))
+                #    # check if removing the rows and colums where these are in, we have row dominance
+                #    mask2 = np.ones((N,N), dtype=bool)
+                #    mask2[np.unique(w2[0]),:] = False
+                #    mask2[:,np.unique(w2[1])] = False
+                #    M2 = M[mask2]
+                #    M2 = M2.reshape((int(M2.size**0.5),int(M2.size**0.5)))
+                #    if row_dominance(M2):
+                #        distances = rotate(molP.coords, molQ.coords, M)
+                #        closest = distances[w2].argmin()
+                #        best_pair = pairs[closest]
+                #        # get pairs that
+                #        idx2 = pairs[np.where(((pairs[:,0] == best_pair[0]) | (pairs[:,1] == best_pair[1])) & (~(pairs == best_pair).all(1)))]
+                #        for pair in idx2:
+                #            print pair
+                #            mask[pair[0],pair[1]] = True
+                #            M[pair[0],pair[1]] = 0
+                #        M[best_pair[0],best_pair[1]] = 1

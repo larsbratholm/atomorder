@@ -53,6 +53,18 @@ class Mixture(object):
         number of molecules
     molecules: list
         Molecule objects.
+    atoms: array
+        array of atoms in all the molecules
+    num_atoms: int
+        number of atoms in all the molecules
+    coordinates: array
+        coordinates of atoms in all the molecules
+    element_symbols: array
+        element symbols of atoms in all the molecules
+    sybyl_atom_types:
+        sybyl types of atoms in all the molecules
+    bond_matrix: array
+        connectivity between atoms
 
     """
     # TODO total charge
@@ -62,16 +74,22 @@ class Mixture(object):
         self.num_mol = len(filenames)
         self.molecules = self.make_molecules()
         self.atoms = self.get_atoms()
+        self.num_atoms = self.atoms.size
         self.set_atom_mixture_indices()
         self.coordinates = self.get_coordinates()
         self.element_symbols = self.get_element_symbols()
+        if settings.create_atoms:
+            self.sybyl_atom_types = self.get_sybyl_atom_types()
+            self.bond_matrix = self.get_bond_matrix()
 
     def get_coordinates(self):
         return np.concatenate([molecule.coordinates for molecule in self.molecules])
 
+    def get_sybyl_atom_types(self):
+        return np.concatenate([molecule.sybyl_atom_types for molecule in self.molecules])
+
     def get_element_symbols(self):
         return np.concatenate([molecule.element_symbols for molecule in self.molecules])
-
 
     # A molecule object will contain everything in a single coordinate file
     def make_molecules(self):
@@ -93,8 +111,8 @@ class Mixture(object):
         Construct array of all atoms in the mixture
 
         """
-        atoms = np.concatenate([mol.atoms for mol in self.molecules])
-        return atoms
+        return  np.concatenate([mol.atoms for mol in self.molecules])
+
 
     def set_atom_mixture_indices(self):
         """
@@ -105,6 +123,20 @@ class Mixture(object):
         if self.num_mol > 1:
             for i, atom in enumerate(self.atoms):
                 atom.set_mixture_index(i)
+
+    def get_bond_matrix(self):
+        """
+        Create binary matrix with the bond network
+
+        """
+
+        connectivity = np.zeros((self.atoms.size, self.atoms.size), dtype=bool)
+
+        for i, atom_i in enumerate(self.atoms):
+            for atom_j in atom_i.bonded_atoms:
+                connectivity[atom_i.molecule_index, atom_j.molecule_index] = 1
+
+        return connectivity
 
 
 class Molecule(object):
@@ -143,8 +175,12 @@ class Molecule(object):
         number of atoms
     bonds: array_like
         bonds in the molecule
-    num_bond: int
+    num_bonds: int
         number of bonds
+    num_atoms: int
+        number of atoms
+    sybyl_atom_types: array
+        sybyl type of the atoms
 
     """
     #TODO total charge
@@ -159,20 +195,27 @@ class Molecule(object):
         self.atoms = []
         self.bonds = []
         self.num_bond = 0
+        self.num_atoms = self.element_symbols.size
 
         # stop here if there's no need for bond information
-        if settings.create_atoms == True:
-            self.create_atoms_and_bonds()
+        if settings.create_atoms == False:
             return
+
+        self.create_atoms_and_bonds()
+        self.sybyl_atom_types = self.get_sybyl_atom_types()
+
+
+    def get_sybyl_atom_types(self):
+        return np.asarray([atom.sybyl for atom in self.atoms])
 
     def create_atoms_and_bonds(self):
         self.distance_matrix = self.get_distance_matrix()
         self.atoms = self.make_atoms()
         self.get_bonds()
-        self.num_bond = len(self.bonds)
+        self.num_bonds = len(self.bonds)
         self.get_sybyl_types()
+        return
         self.get_bond_order()
-        quit()
         # TODO add matched sybyl type check
         quit()
         # TODO make bond2
@@ -485,7 +528,7 @@ class Atom(object):
         self.bonds = []
         self.validated = False
         self.sybyl = self.element_symbol
-        self.num_bond = 0
+        self.num_bonds = 0
         self.charge = None
         self.sybyl_properties = None
 
@@ -497,7 +540,7 @@ class Atom(object):
         """
         self.sybyl = s
         # TODO make this not fail if weird structures are tried
-        self.sybyl_properties = constants.sybyl_bonds[self.sybyl][self.num_bond]
+        self.sybyl_properties = constants.sybyl_bonds[self.sybyl][self.num_bonds]
         self.charge = self.sybyl_properties[2]
 
     def get_sybyl_type(self):
@@ -539,10 +582,10 @@ class Atom(object):
 
         """
 
-        # 2.5.1 If num_bond .ge. 4 then atom_type is C.3
-        if self.num_bond >= 4: return "C.3"
-        # 2.5.2 If num_bond .eq. 1 then calculate bond_distance
-        if self.num_bond == 1:
+        # 2.5.1 If num_bonds .ge. 4 then atom_type is C.3
+        if self.num_bonds >= 4: return "C.3"
+        # 2.5.2 If num_bonds .eq. 1 then calculate bond_distance
+        if self.num_bonds == 1:
             bond_distance = self.get_bond_distances()[0]
 
             # 2.5.2.1 If bond_distance .gt. 1.41A then atom_type is C.3
@@ -568,15 +611,15 @@ class Atom(object):
         """
 
         # 2.6.1 If num_nonmet .eq. 1 then
-        if self.num_bond == 1:
+        if self.num_bonds == 1:
             # 2.6.1.1 If bond is to carbon .AND. carbon forms a total of 3
             #         bonds, 2 of which are to an oxygen forming only 1
             #         non-metal bond then atom_type is O.co2
             neighbour = self.bonded_atoms[0]
-            if neighbour.element_symbol == "C" and neighbour.num_bond == 3:
+            if neighbour.element_symbol == "C" and neighbour.num_bonds == 3:
                 for neighbours_neighbour in neighbour.bonded_atoms:
                     if neighbours_neighbour.element_symbol == "O" and neighbours_neighbour.molecule_index != self.molecule_index \
-                            and neighbours_neighbour.num_bond == 1:
+                            and neighbours_neighbour.num_bonds == 1:
                         return "O.co2"
             # 2.6.1.2 If bond is to phosphorus .AND. phosphorous forms at
             #         least 2 bonds to an oxygen forming only 1 non-metal
@@ -584,10 +627,10 @@ class Atom(object):
             if neighbour.element_symbol == "P":
                 for neighbours_neighbour in neighbour.bonded_atoms:
                     if neighbours_neighbour.element_symbol == "O" and neighbours_neighbour.molecule_index != self.molecule_index \
-                            and neighbours_neighbour.num_bond == 1:
+                            and neighbours_neighbour.num_bonds == 1:
                         return "O.co2"
-        # 2.6.3 If num_bond .ge. 2 then atom_type is O.3
-        if self.num_bond >= 2: return "O.3"
+        # 2.6.3 If num_bonds .ge. 2 then atom_type is O.3
+        if self.num_bonds >= 2: return "O.3"
 
         # 2.6.4 If element_symbol is O and none of the above then atom_type is O.2
         return "O.2"
@@ -600,10 +643,10 @@ class Atom(object):
         """
 
         # 2.7.1 If num_nonmet .eq. 4 then atom_type is N.4
-        if self.num_bond == 4: return "N.4"
+        if self.num_bonds == 4: return "N.4"
 
         # 2.7.2 If num_nonmet .eq. 1 then calculate bond_distance
-        if self.num_bond == 1:
+        if self.num_bonds == 1:
             bond_distance = self.get_bond_distances()[0]
 
             # 2.7.2.1 If bond_distance .le. 1.2A then atom_type is N.1
@@ -613,15 +656,15 @@ class Atom(object):
             return "N.3"
 
         # 2.7.3 If num_nonmet .eq. 3 .AND. one bond is to C--O or C--S then atom_type is N.am
-        if self.num_bond == 3:
+        if self.num_bonds == 3:
             for neighbour in self.bonded_atoms:
                 if neighbour.element_symbol == "C":
                     for neighbours_neighbour in neighbour.bonded_atoms:
                         # At this stage it's not known if a bond is double or single
                         # so just check that O and S only bonds to the parent carbon
                         if neighbours_neighbour.element_symbol in ("O","S") and \
-                                neighbours_neighbour.num_bond == 1:
-                                    return "N.am"
+                                neighbours_neighbour.num_bonds == 1:
+                            return "N.am"
             # 2.7.4 If num_nonmet .eq. 3 otherwise then calculate sum_of_angles around N
             angle_sum = self.get_angle_sum()
 
@@ -652,18 +695,18 @@ class Atom(object):
 
         # 2.8.1 If num_nonmet .eq. 3 .AND. 1 bond is to an oxygen with only one
         #       non-metal bond then atom_type is S.o
-        if self.num_bond == 3:
+        if self.num_bonds == 3:
             for neighbour in self.bonded_atoms:
-                if neighbour.element_symbol == "O" and neighbour.num_bond == 1: return "S.o"
+                if neighbour.element_symbol == "O" and neighbour.num_bonds == 1: return "S.o"
         # 2.8.2  If num_nonmet .eq. 4 .AND. 2 bonds are to an oxygen with only
         #        one non-metal bond then atom_type is S.o2
-        if self.num_bond == 4:
+        if self.num_bonds == 4:
             count = 0
             for neighbour in self.bonded_atoms:
-                if neighbour.element_symbol == "O" and neighbour.num_bond == 1: count += 1
+                if neighbour.element_symbol == "O" and neighbour.num_bonds == 1: count += 1
                 if count == 2: return "S.o2"
-        # 2.8.3 If num_bond .ge. 2 then atom_type is S.3
-        if self.num_bond >= 2: return "S.3"
+        # 2.8.3 If num_bonds .ge. 2 then atom_type is S.3
+        if self.num_bonds >= 2: return "S.3"
         # 2.8.4 If element_symbol is S and none of the above then atom_type is S.2
         return "S.2"
 
@@ -684,9 +727,9 @@ class Atom(object):
             eprint(2, "WARNING: element %s not completely implemented, but ordering should still work")
             return True
         possible_num_bonds = constants.number_bonds[self.element_symbol]
-        if self.num_bond in possible_num_bonds: return 0
-        if self.num_bond < possible_num_bonds.min(): return possible_num_bonds.min() - self.num_bond
-        if self.num_bond > possible_num_bonds.max(): return self.num_bond - possible_num_bonds.max()
+        if self.num_bonds in possible_num_bonds: return 0
+        if self.num_bonds < possible_num_bonds.min(): return possible_num_bonds.min() - self.num_bonds
+        if self.num_bonds > possible_num_bonds.max(): return self.num_bonds - possible_num_bonds.max()
 
     def set_molecule_index(self, index):
         self.molecule_index = index
@@ -699,7 +742,7 @@ class Atom(object):
 
         self.bonds.append(bond)
         self.bonded_atoms.append(bonded_atom)
-        self.num_bond += 1
+        self.num_bonds += 1
 
     def validate(self):
         self.validated = True
@@ -742,7 +785,7 @@ class Atom(object):
         # TODO shorten this when confirmed working
 
         n_unassigned_electrons = self.sybyl_properties[0]
-        determined_bonds = np.zeros(self.num_bond, dtype=bool)
+        determined_bonds = np.zeros(self.num_bonds, dtype=bool)
         lone_pairs = self.sybyl_properties[1]
 
         for i, bond in enumerate(self.bonds):
@@ -754,61 +797,61 @@ class Atom(object):
             elif bond.is_type == "triple":
                 n_unassigned_electrons -= 2
 
-        if n_unassigned_electrons == 2 and (self.num_bond - determined_bonds.sum()) == 1 and lone_pairs == 0:
+        if n_unassigned_electrons == 2 and (self.num_bonds - determined_bonds.sum()) == 1 and lone_pairs == 0:
             bond_index = np.where(determined_bonds == False)[0][0]
             self.bonds[bond_index].set_type("triple")
             return [self.bonded_atoms[bond_index].molecule_index]
 
-        if n_unassigned_electrons == 0 and (self.num_bond - determined_bonds.sum()) == 0 and lone_pairs == 0:
+        if n_unassigned_electrons == 0 and (self.num_bonds - determined_bonds.sum()) == 0 and lone_pairs == 0:
             # all bonds were already determined
             # just return index of an arbitrary bond
             return [self.bonded_atoms[0].molecule_index]
 
-        if n_unassigned_electrons == 1 and (self.num_bond - determined_bonds.sum()) == 0 and lone_pairs == 1:
+        if n_unassigned_electrons == 1 and (self.num_bonds - determined_bonds.sum()) == 0 and lone_pairs == 1:
             # there's a left over electron on the atom
             self.charge -= 1
             # all bonds were already determined
             # just return index of an arbitrary bond
             return [self.bonded_atoms[0].molecule_index]
 
-        if n_unassigned_electrons == 0 and (self.num_bond - determined_bonds.sum()) == 0 and lone_pairs == 1:
+        if n_unassigned_electrons == 0 and (self.num_bonds - determined_bonds.sum()) == 0 and lone_pairs == 1:
             # all bonds were already determined
             # just return index of an arbitrary bond
             return [self.bonded_atoms[0].molecule_index]
 
-        if n_unassigned_electrons == 1 and (self.num_bond - determined_bonds.sum()) == 2 and lone_pairs == 0:
+        if n_unassigned_electrons == 1 and (self.num_bonds - determined_bonds.sum()) == 2 and lone_pairs == 0:
             return None
 
-        if n_unassigned_electrons == 1 and (self.num_bond - determined_bonds.sum()) == 1 and lone_pairs == 0:
+        if n_unassigned_electrons == 1 and (self.num_bonds - determined_bonds.sum()) == 1 and lone_pairs == 0:
             bond_index = np.where(determined_bonds == False)[0][0]
             self.bonds[bond_index].set_type("double")
             return [self.bonded_atoms[bond_index].molecule_index]
 
-        if n_unassigned_electrons == 0 and (self.num_bond - determined_bonds.sum()) == 1 and lone_pairs == 0:
+        if n_unassigned_electrons == 0 and (self.num_bonds - determined_bonds.sum()) == 1 and lone_pairs == 0:
             bond_index = np.where(determined_bonds == False)[0][0]
             self.bonds[bond_index].set_type("single")
             return [self.bonded_atoms[bond_index].molecule_index]
 
-        if n_unassigned_electrons == 0 and (self.num_bond - determined_bonds.sum()) == 2 and lone_pairs == 0:
+        if n_unassigned_electrons == 0 and (self.num_bonds - determined_bonds.sum()) == 2 and lone_pairs == 0:
             bond_index1, bond_index2 = np.where(determined_bonds == False)[0]
             self.bonds[bond_index1].set_type("single")
             self.bonds[bond_index2].set_type("single")
             return [self.bonded_atoms[bond_index1].molecule_index,self.bonded_atoms[bond_index2].molecule_index]
 
-        if n_unassigned_electrons == 1 and (self.num_bond - determined_bonds.sum()) == 1 and lone_pairs == 1:
+        if n_unassigned_electrons == 1 and (self.num_bonds - determined_bonds.sum()) == 1 and lone_pairs == 1:
             # e.g. N.am
             return None
 
-        if n_unassigned_electrons == 1 and (self.num_bond - determined_bonds.sum()) == 2 and lone_pairs == 1:
+        if n_unassigned_electrons == 1 and (self.num_bonds - determined_bonds.sum()) == 2 and lone_pairs == 1:
             return None
 
-        if n_unassigned_electrons == 0 and (self.num_bond - determined_bonds.sum()) == 1 and lone_pairs == 1:
+        if n_unassigned_electrons == 0 and (self.num_bonds - determined_bonds.sum()) == 1 and lone_pairs == 1:
             bond_index = np.where(determined_bonds == False)[0][0]
             self.bonds[bond_index].set_type("single")
             return [self.bonded_atoms[bond_index].molecule_index]
 
         print n_unassigned_electrons, determined_bonds, self.sybyl_properties[1]
-        print self.sybyl, self.num_bond, self.sybyl_properties
+        print self.sybyl, self.num_bonds, self.sybyl_properties
         quit("Add to determine_bond_type")
 
 class Bond(object):
@@ -835,10 +878,6 @@ class Bond(object):
     molecule_index: int
         index of bond in molecule
 
-    Returns:
-    --------
-    was_single: bool
-        If the bond was single
 
 
     """
@@ -858,6 +897,11 @@ class Bond(object):
         """
         Checks sybyl types of both atoms to infer if the bond
         can only be single.
+
+        Returns:
+        --------
+        was_single: bool
+            If the bond was single
 
         """
 
