@@ -144,3 +144,16 @@ def get_coordinates_pdb(filename):
         error("Mismatch in number of parsed element symbols (%d) and number of parsed coordinates (%d) from PDB file: %s" \
                 % (coordinates.shape[0], atoms.size, filename))
     return atoms, coordinates
+
+def write_xyz(coordinates, elements, filename):
+    """
+    Writes the given elements and coordinates to XYZ formated file
+
+    """
+    N = elements.size
+
+    with open(filename, "w") as f:
+        f.write(str(N)+"\n")
+        for i in xrange(N):
+            line = "{0:2s} {1:15.8f} {2:15.8f} {3:15.8f}\n".format(elements[i], *coordinates[i])
+            f.write(line)

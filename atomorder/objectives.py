@@ -9,6 +9,7 @@ import numpy as np
 import scipy.optimize
 from . import settings
 import itertools
+from .utils import eprint, oprint
 
 # TODO options ignore monovalent / ignore hydrogens
 
@@ -55,6 +56,7 @@ class Rotation(object):
     """
 
     def __init__(self, M):
+        oprint(3, "Initializing rotation objective")
         self.M = M
         self.X = self.M.products_coordinates
         self.Y = self.M.reactants_coordinates
@@ -63,6 +65,7 @@ class Rotation(object):
         self.score = self.set_solver()
         self.q = self.initialize_quaternions()
         self.W, self.Q, self.Qt_dot_W, self.W_minus_Q = self.interaction_arrays()
+        # only used in numeric part
         self.squared_distances = np.zeros(self.M.match_matrix.shape, dtype=float)
 
     def initialize_quaternions(self):
@@ -112,11 +115,15 @@ class Rotation(object):
 
         """
 
+        if self.M.it < 0:
+            return np.zeros(match.shape)
         E = 0
 
         # Pick first reactant as reference state
         ref_indices = self.M.reactant_subset_indices[0]
         Y0 = self.Y[ref_indices]
+
+        squared_distances = np.zeros(self.M.match_matrix.shape, dtype=float)
 
         for i, reactant_indices in enumerate(self.M.reactant_subset_indices):
             for j, product_indices in enumerate(self.M.product_subset_indices):
@@ -130,19 +137,19 @@ class Rotation(object):
                 C1 = -2*np.sum(match_sub_matrix[:,:,None,None]*Qt_dot_W,axis=(0,1))
                 C2 = match_sub_matrix.sum()
                 C3 = 2*np.sum(match_sub_matrix[:,:,None,None]*W_minus_Q,axis=(0,1))
-                A = 0.5*(C3.T.dot(C3)/(2*C2)-C1-C1.T)
+                A = 0.5*(C3.T.dot(C3)/(2.0*C2)-C1-C1.T)
                 # TODO remove
                 assert(np.allclose(A,A.T))
                 eigen = np.linalg.eigh(A)
                 r = eigen[1][:,-1]
                 # TODO remove
                 assert(np.allclose(A.dot(r), eigen[0][-1]*r))
-                s = -C3.dot(r)/(2*C2)
+                s = -C3.dot(r)/(2.0*C2)
                 rot, trans = self.transform(r,s)
 
-                self.squared_distances[sub_matrix_indices] =  np.sum((Y[None,:,:] - trans[None,None,:] - rot.dot(X.T).T[:,None,:])**2, axis=2)
+                squared_distances[sub_matrix_indices] = np.sum((Y[:,None,:] - trans[None,None,:] - rot.dot(X.T).T[None,:,:])**2, axis=2)
 
-        return self.squared_distances
+        return squared_distances
 
     def numerical_solver(self, match):
         """
@@ -166,6 +173,7 @@ class Rotation(object):
 
         def objective(flat_q, match, self):#, jac):
             # TODO jacobian could be written in matrix form.
+            # TODO add penalty for clashing in the numerical version
 
             # size
             N, M = self.M.num_reactants, self.M.num_products
@@ -196,7 +204,7 @@ class Rotation(object):
                 X = self.X[product_indices]
                 #match_sub_matrix = match[np.ix_(ref_indices, product_indices)]
                 #E += np.sum(match_sub_matrix*(-2*q[j,1,0]*(q[j,0,1]*X[:,None,2] - q[j,0,2]*X[:,None,1] + q[j,0,3]*X[:,None,0]) - 2*q[j,1,0]*(X[:,None,0]*(q[j,1,0]*Y0[None,:,0] + q[j,1,1]*Y0[None,:,1] + q[j,1,2]*Y0[None,:,2]) + X[:,None,1]*(-q[j,1,0]*Y0[None,:,1] + q[j,1,1]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,2]) - X[:,None,2]*(q[j,1,0]*Y0[None,:,2] - q[j,1,2]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,1])) - 2*q[j,1,1]*(-q[j,0,0]*X[:,None,2] + q[j,0,2]*X[:,None,0] + q[j,0,3]*X[:,None,1]) - 2*q[j,1,1]*(-X[:,None,0]*(-q[j,1,0]*Y0[None,:,1] + q[j,1,1]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,2]) + X[:,None,1]*(q[j,1,0]*Y0[None,:,0] + q[j,1,1]*Y0[None,:,1] + q[j,1,2]*Y0[None,:,2]) + X[:,None,2]*(-q[j,1,1]*Y0[None,:,2] + q[j,1,2]*Y0[None,:,1] + q[j,1,3]*Y0[None,:,0])) - 2*q[j,1,2]*(q[j,0,0]*X[:,None,1] - q[j,0,1]*X[:,None,0] + q[j,0,3]*X[:,None,2]) - 2*q[j,1,2]*(X[:,None,0]*(q[j,1,0]*Y0[None,:,2] - q[j,1,2]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,1]) - X[:,None,1]*(-q[j,1,1]*Y0[None,:,2] + q[j,1,2]*Y0[None,:,1] + q[j,1,3]*Y0[None,:,0]) + X[:,None,2]*(q[j,1,0]*Y0[None,:,0] + q[j,1,1]*Y0[None,:,1] + q[j,1,2]*Y0[None,:,2])) + 2*q[j,1,3]*(q[j,0,0]*X[:,None,0] + q[j,0,1]*X[:,None,1] + q[j,0,2]*X[:,None,2]) - 2*q[j,1,3]*(X[:,None,0]*(-q[j,1,1]*Y0[None,:,2] + q[j,1,2]*Y0[None,:,1] + q[j,1,3]*Y0[None,:,0]) + X[:,None,1]*(q[j,1,0]*Y0[None,:,2] - q[j,1,2]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,1]) + X[:,None,2]*(-q[j,1,0]*Y0[None,:,1] + q[j,1,1]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,2])) + q[j,0,0]**2 - 2*q[j,0,0]*(-q[j,1,1]*Y0[None,:,2] + q[j,1,2]*Y0[None,:,1] + q[j,1,3]*Y0[None,:,0]) + q[j,0,1]**2 - 2*q[j,0,1]*(q[j,1,0]*Y0[None,:,2] - q[j,1,2]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,1]) + q[j,0,2]**2 - 2*q[j,0,2]*(-q[j,1,0]*Y0[None,:,1] + q[j,1,1]*Y0[None,:,0] + q[j,1,3]*Y0[None,:,2]) + q[j,0,3]**2 + 2*q[j,0,3]*(q[j,1,0]*Y0[None,:,0] + q[j,1,1]*Y0[None,:,1] + q[j,1,2]*Y0[None,:,2]) + X[:,None,0]**2 + X[:,None,1]**2 + X[:,None,2]**2 + Y0[None,:,0]**2 + Y0[None,:,1]**2 + Y0[None,:,2]**2))
-                self.squared_distances[np.ix_(ref_indices, product_indices)] = np.sum((Y0[None,:,:] - trans[j][None,None,:] - rot[j].dot(X.T).T[:,None,:])**2, axis=2)
+                self.squared_distances[np.ix_(ref_indices, product_indices)] = np.sum((Y0[:,None,:] - trans[j][None,None,:] - rot[j].dot(X.T).T[None,:,:])**2, axis=2)
 
                 #if jac:
                 #    J[8*j]   += np.sum(match_sub_matrix*(2*q[j,1,1]*X[:,None,2] + 2*q[j,1,1]*Y0[None,:,2] - 2*q[j,1,2]*X[:,None,1] - 2*q[j,1,2]*Y0[None,:,1] + 2*q[j,1,3]*X[:,None,0] - 2*q[j,1,3]*Y0[None,:,0] + 2*q[j,0,0]))
@@ -212,7 +220,7 @@ class Rotation(object):
                 for i, reactant_indices in self.M.reactant_subset_indices[1:]:
                     Y = self.X[reactant_indices]
                     #match_sub_matrix = match[np.ix_(reactant_indices, product_indices)]
-                    self.squared_distances[np.ix_(reactant_indices, product_indices)] = np.sum((trans[M+i][None,None,:] + (rot[M+i].dot(Y.T).T)[None,:,:] - trans[j][None,None,:] - (rot[j].dot(X.T).T)[:,None,:])**2, axis=2)
+                    self.squared_distances[np.ix_(reactant_indices, product_indices)] = np.sum((trans[M+i][None,None,:] + (rot[M+i].dot(Y.T).T)[:,None,:] - trans[j][None,None,:] - (rot[j].dot(X.T).T)[None,:,:])**2, axis=2)
 
                     #if jac:
                     #    J[8*j]       += np.sum(match_sub_matrix[:,:,None]*(-2*q[j,1,0]*(q[M+i,1,0]*q[M+i,0,0] + q[M+i,1,1]*q[M+i,0,1] + q[M+i,1,2]*q[M+i,0,2] + q[M+i,1,3]*q[M+i,0,3]) - 2*q[j,1,0]*(q[M+i,1,0]*(q[M+i,1,1]*Y[None,:,2] - q[M+i,1,2]*Y[None,:,1] + q[M+i,1,3]*Y[None,:,0]) + q[M+i,1,1]*(-q[M+i,1,0]*Y[None,:,2] + q[M+i,1,2]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,1]) + q[M+i,1,2]*(q[M+i,1,0]*Y[None,:,1] - q[M+i,1,1]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,2]) - q[M+i,1,3]*(q[M+i,1,0]*Y[None,:,0] + q[M+i,1,1]*Y[None,:,1] + q[M+i,1,2]*Y[None,:,2])) + 2*q[j,1,1]*X[:,None,2] + 2*q[j,1,1]*(q[M+i,1,0]*q[M+i,0,1] - q[M+i,1,1]*q[M+i,0,0] - q[M+i,1,2]*q[M+i,0,3] + q[M+i,1,3]*q[M+i,0,2]) + 2*q[j,1,1]*(q[M+i,1,0]*(-q[M+i,1,0]*Y[None,:,2] + q[M+i,1,2]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,1]) - q[M+i,1,1]*(q[M+i,1,1]*Y[None,:,2] - q[M+i,1,2]*Y[None,:,1] + q[M+i,1,3]*Y[None,:,0]) + q[M+i,1,2]*(q[M+i,1,0]*Y[None,:,0] + q[M+i,1,1]*Y[None,:,1] + q[M+i,1,2]*Y[None,:,2]) + q[M+i,1,3]*(q[M+i,1,0]*Y[None,:,1] - q[M+i,1,1]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,2])) - 2*q[j,1,2]*X[:,None,1] + 2*q[j,1,2]*(q[M+i,1,0]*q[M+i,0,2] + q[M+i,1,1]*q[M+i,0,3] - q[M+i,1,2]*q[M+i,0,0] - q[M+i,1,3]*q[M+i,0,1]) - 2*q[j,1,2]*(-q[M+i,1,0]*(q[M+i,1,0]*Y[None,:,1] - q[M+i,1,1]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,2]) + q[M+i,1,1]*(q[M+i,1,0]*Y[None,:,0] + q[M+i,1,1]*Y[None,:,1] + q[M+i,1,2]*Y[None,:,2]) + q[M+i,1,2]*(q[M+i,1,1]*Y[None,:,2] - q[M+i,1,2]*Y[None,:,1] + q[M+i,1,3]*Y[None,:,0]) + q[M+i,1,3]*(-q[M+i,1,0]*Y[None,:,2] + q[M+i,1,2]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,1])) + 2*q[j,1,3]*X[:,None,0] + 2*q[j,1,3]*(q[M+i,1,0]*q[M+i,0,3] - q[M+i,1,1]*q[M+i,0,2] + q[M+i,1,2]*q[M+i,0,1] - q[M+i,1,3]*q[M+i,0,0]) - 2*q[j,1,3]*(q[M+i,1,0]*(q[M+i,1,0]*Y[None,:,0] + q[M+i,1,1]*Y[None,:,1] + q[M+i,1,2]*Y[None,:,2]) + q[M+i,1,1]*(q[M+i,1,0]*Y[None,:,1] - q[M+i,1,1]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,2]) - q[M+i,1,2]*(-q[M+i,1,0]*Y[None,:,2] + q[M+i,1,2]*Y[None,:,0] + q[M+i,1,3]*Y[None,:,1]) + q[M+i,1,3]*(q[M+i,1,1]*Y[None,:,2] - q[M+i,1,2]*Y[None,:,1] + q[M+i,1,3]*Y[None,:,0])) + 2*q[j,0,0]))
@@ -235,7 +243,7 @@ class Rotation(object):
             #if jac:
             #    return E, J
 
-            return np.sum(self.match_matrix*self.squared_distances)
+            return np.sum(match*self.squared_distances)
 
 
 
@@ -321,7 +329,6 @@ class Rotation(object):
         trans = Wt_r.dot(s)[:3]
         return rot, trans
 
-
 class Atomic(object):
     """
     Atomic(M)
@@ -331,6 +338,7 @@ class Atomic(object):
     """
 
     def __init__(self, M):
+        oprint(3, "Initializing atomic objective")
         self.M = M
         self.score_matrix = self.get_score_matrix()
 
@@ -346,7 +354,7 @@ class Atomic(object):
 
         # enforce that elements only match other elements of same type
 
-        score_matrix += 1e300 * (self.M.reactants_elements[:, None] != self.M.products_elements[None,:])
+        score_matrix += 1e6 * (self.M.reactants_elements[:, None] != self.M.products_elements[None,:])
 
         return score_matrix
 
@@ -378,6 +386,7 @@ class Bond(object):
     """
 
     def __init__(self, M):
+        oprint(3, "Initializing bond objective")
         self.M = M
         self.matrix_function = self.get_matrix_function()
         self.evaluate_score_matrix_vect = np.vectorize(self.evaluate_score_matrix, otypes=[np.float], excluded=['match'])

@@ -25,13 +25,10 @@ class Reaction(object):
     def __init__(self):
         oprint(3, "Creating reactants")
         self.reactants = Mixture(settings.reactant_filenames)
-        self.num_reactant_atoms = self.get_molecule_sizes()
+        self.num_reactant_atoms = self.reactants.get_molecule_sizes()
         oprint(3, "Creating products")
         self.products = Mixture(settings.product_filenames)
-        self.num_product_atoms = self.get_molecule_sizes()
-
-    def get_molecule_sizes(self):
-        return [molecule.size for molecule in self.reactants.molecules]
+        self.num_product_atoms = self.products.get_molecule_sizes()
 
 
 class Mixture(object):
@@ -81,6 +78,9 @@ class Mixture(object):
         if settings.create_atoms:
             self.sybyl_atom_types = self.get_sybyl_atom_types()
             self.bond_matrix = self.get_bond_matrix()
+
+    def get_molecule_sizes(self):
+        return [molecule.size for molecule in self.molecules]
 
     def get_coordinates(self):
         return np.concatenate([molecule.coordinates for molecule in self.molecules])

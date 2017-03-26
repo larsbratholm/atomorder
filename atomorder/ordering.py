@@ -33,6 +33,7 @@ class Ordering(object):
 
     def __init__(self, reaction):
         # TODO allow for matching between different elements
+        oprint(3, "Initializing ordering")
         self.reaction = reaction
         self.num_reactants = self.reaction.reactants.num_mol
         self.num_products = self.reaction.products.num_mol
@@ -54,9 +55,11 @@ class Ordering(object):
         self.initial_inverse_temperature, self.final_inverse_temperature, self.inverse_temperature_increment, \
                 self.max_annealing_iterations, self.max_relaxation_iterations, self.max_softassign_iterations, \
                 self.annealing_convergence_threshold, self.relaxation_convergence_threshold, self.softassign_convergence_threshold = self.set_parameters()
+        self.it = 0
 
         # do the annealing
-        self.annealing()
+        self.converged = self.annealing()
+        self.finalize()
 
     def initialize_objectives(self):
         """
@@ -69,20 +72,20 @@ class Ordering(object):
 
         """
 
-        obj = []
+        self.obj = []
 
         if settings.rotation_objective:
-            obj.append(objectives.Rotation(self))
+            self.obj.append(objectives.Rotation(self))
 
         if settings.atomic_objective:
-            obj.append(objectives.Atomic(self))
+            self.obj.append(objectives.Atomic(self))
 
         if settings.bond_objective:
-            obj.append(objectives.Bond(self))
+            self.obj.append(objectives.Bond(self))
 
 
         # return function that returns the sum of all objective scoring functions
-        return (lambda x, obj=obj: sum((fun.score(x) for fun in obj)))
+        return (lambda x, obj=self.obj: sum((fun.score(x) for fun in obj)))
 
 
     def get_element_type_subset_indices(self):
@@ -113,7 +116,7 @@ class Ordering(object):
             reactant_subset_indices[i] = xrange(n_count, n_count +n)
             n_count += n
         for j, m in enumerate(self.reaction.num_product_atoms):
-            product_subset_indices[j] = xrange(m_count, m_count + n)
+            product_subset_indices[j] = xrange(m_count, m_count + m)
             m_count += m
 
         # TODO remove on release
@@ -153,6 +156,10 @@ class Ordering(object):
         for indices in self.element_type_subset_indices:
             match_matrix[indices] = 1 + 1e-6 * np.random.random(match_matrix[indices].shape)
             match_matrix[indices] /= match_matrix[indices].sum(0)
+
+        #match_matrix = np.eye(match_matrix.shape[0])
+        #for i,j in [(0,0),(0,4),(1,1),(1,3),(4,0),(4,4),(3,3),(3,1),(7,7),(7,11),(8,8),(8,10),(20,20),(20,24),(21,21),(21,23),(11,7),(11,11),(10,8),(10,10),(24,20),(24,24),(23,23),(23,21)]:
+        #    match_matrix[i,j] = 0.5
 
         return match_matrix
 
@@ -203,7 +210,7 @@ class Ordering(object):
                     oprint(5, "Softassign algorithm for subset %d converged in iteration %d" % (i, it+1))
                     break
 
-                if it == self.max_softassign_iterations - 1:
+                if it == (self.max_softassign_iterations - 1):
                     eprint(3, "WARNING: Softassign algorithm for subset %d did not converge to %.2g (reached %.2g) in %d iterations" % (i, self.softassign_convergence_threshold, max_row_normalization_error, self.max_softassign_iterations))
 
             # M is NOT a view, but a copy
@@ -277,37 +284,24 @@ class Ordering(object):
 
         # begin Deterministic annealing
         for it in xrange(self.max_annealing_iterations):
-            if (it+1) % (self.max_annealing_iterations/100) == 0 and it > 0:
+            self.it = it
+            if ((it+1)*100) % self.max_annealing_iterations == 0 and it > 0:
                 oprint(4, "On iteration %d of %d in deterministic annealing with convergence at %.2g of %.2g" % (it+1, self.max_annealing_iterations, row_l2_deviation, self.annealing_convergence_threshold))
+                print np.sum(self.match_matrix.diagonal())
+
 
             self.relaxation()
 
             row_l2_deviation = abs(1 - np.sum(self.match_matrix**2)/N)
 
             if row_l2_deviation < self.annealing_convergence_threshold and self.row_dominance():
-                print "pewpew"
-                print self.match_matrix.diagonal()
-                print self.match_matrix.diagonal().sum(), N, sum(self.match_matrix.diagonal() > 0.5)
-                rd = self.row_dominance(True)
-
-                M1 = np.eye(N, dtype=bool)
-                M2 = np.zeros((N,N), dtype=bool)
-                for i in range(N):
-                    print i, rd[i]
-                    M2[i,rd[i]] = 1.0
-                print np.sum(M1*self.score(M1)), np.sum(M2*self.score(M2))
                 oprint(4, "Annealing algorithm converged in iteration %d" % (it+1))
                 return True
 
             self.update_inverse_temperature()
 
         # The annealing terminated without a definitive assignment
-        eprint(3, "WARNING: Annealing algorithm did not converge to %.2g (reached %.2g) in %d iterations" % (self.annealing_convergence_threshold, row_l2_deviation, self.max_annealing_iterations))
-        print self.match_matrix
-        print row_l2_deviation , self.annealing_convergence_threshold
-        print self.row_dominance()
-        print self.row_dominance(True)
-        print self.match_matrix.max(0)
+        eprint(3, "WARNING: Annealing algorithm did not converge to %.2g (reached %.2g) in %d iterations and row dominance was %s" % (self.annealing_convergence_threshold, row_l2_deviation, self.max_annealing_iterations, str(self.row_dominance())))
         return False
 
     def update_inverse_temperature(self):
@@ -334,7 +328,27 @@ class Ordering(object):
 
             Q = self.score(self.match_matrix)
             # minimum in Q will be 0, so there's no risk of overflow in the exponential
+            # OR IS THERE?
+            #scores = [fun.score(self.match_matrix) for fun in self.obj]
+            #real_scores = [fun.score(np.eye(16)) for fun in self.obj]
+            #for i in range(3):
+            #    print i
+            #    for j in range(16):
+            #        print j
+            #        print (self.match_matrix*scores[i])[j]
+            #        print (np.eye(16)*real_scores[i])[j]
+            #print ""
+
+            #np.exp(-self.inverse_temperature*(Q - min(max(Q.min(0)),max(Q.min(1)))) - 100 , out=self.match_matrix)
             np.exp(-self.inverse_temperature*Q, out=self.match_matrix)
+            #print self.match_matrix.sum(0)
+            #print self.match_matrix.sum(1)
+            #print ""
+            if np.isnan(self.match_matrix).any():
+                for i in xrange(self.match_matrix.shape[0]):
+                    for j in xrange(self.match_matrix.shape[1]):
+                        print i,j, self.match_matrix[i,j]
+                quit("lol")
             # TODO check if this changes anything
             #self.match_matrix /= self.match_matrix.sum()**0.5
 
@@ -355,4 +369,31 @@ class Ordering(object):
     def backup_match_matrix(self):
         np.copyto(self.old_match_matrix,self.match_matrix)
 
+    def finalize(self):
+        """
+        Saves output files, prints information etc.
+
+        """
+
+        if self.converged:
+            oprint(4, "Match matrix diagonal: " + str(self.match_matrix.diagonal()))
+            oprint(4, "Match matrix diagonal sum: " + str(self.match_matrix.diagonal().sum()))
+            N = self.match_matrix.shape[0]
+            oprint(4, "%d out of %d matched in diagonal" % (sum(self.match_matrix.diagonal() > 0.5), N))
+            rd = self.row_dominance(True)
+            oprint(4, "Order: " + str(rd))
+            M1 = np.eye(N, dtype=bool)
+            M2 = np.zeros((N,N), dtype=bool)
+            for i in range(N):
+                M2[i,rd[i]] = 1
+
+            scores1 = [fun.score(M1) for fun in self.obj]
+            scores2 = [fun.score(M2) for fun in self.obj]
+            #for i in range(N):
+            #    for j in range(M):
+            #        if M1[i,j] + M2[i,j] > 0.9:
+            #            print i, j, [(scores1[k][i,j],scores2[k][i,j]) for k in range(3)]
+            oprint(4, "Scores of diagonal ordering compared to found ordering: " + str([(np.sum(M1*scores1[k]), np.sum(M2*scores2[k])) for k in range(3)]))
+        else:
+            oprint(4, "Row dominance: " + str(self.row_dominance))
 

@@ -73,18 +73,6 @@ def rmsd(V, W):
         rmsd += sum([(v[i]-w[i])**2.0 for i in range(D)])
     return np.sqrt(rmsd/N)
 
-def write_coordinates(atoms, V):
-    """
-    Print coordinates V
-    """
-    N, D = V.shape
-
-    print str(N)
-    print
-
-    for i in xrange(N):
-        line = "{0:2s} {1:15.8f} {2:15.8f} {3:15.8f}".format(atoms[i], V[i, 0], V[i, 1], V[i, 2])
-        print line
 
 
 
