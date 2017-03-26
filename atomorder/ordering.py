@@ -287,7 +287,6 @@ class Ordering(object):
             self.it = it
             if ((it+1)*100) % self.max_annealing_iterations == 0 and it > 0:
                 oprint(4, "On iteration %d of %d in deterministic annealing with convergence at %.2g of %.2g" % (it+1, self.max_annealing_iterations, row_l2_deviation, self.annealing_convergence_threshold))
-                print np.sum(self.match_matrix.diagonal())
 
 
             self.relaxation()
@@ -393,7 +392,7 @@ class Ordering(object):
             #    for j in range(M):
             #        if M1[i,j] + M2[i,j] > 0.9:
             #            print i, j, [(scores1[k][i,j],scores2[k][i,j]) for k in range(3)]
-            oprint(4, "Scores of diagonal ordering compared to found ordering: " + str([(np.sum(M1*scores1[k]), np.sum(M2*scores2[k])) for k in range(3)]))
+            oprint(4, "Scores of diagonal ordering compared to found ordering: " + str([(np.sum(M1*scores1[k]), np.sum(M2*scores2[k])) for k in range(len(scores1))]))
         else:
             oprint(4, "Row dominance: " + str(self.row_dominance))
 

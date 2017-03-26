@@ -180,12 +180,12 @@ class Settings(object):
         self.atomic_sybyl_weight = args.atomic_sybyl_weight
         self.bond_weight = args.bond_weight
         self.annealing_method = "multiplication" # multiplication/addition
-        self.initial_inverse_temperature = 1e-3
-        self.final_inverse_temperature = 1e2
-        self.max_annealing_iterations = 10**3
+        self.initial_inverse_temperature = 1e-1
+        self.final_inverse_temperature = 1e1
+        self.max_annealing_iterations = 10**2
         self.max_relaxation_iterations = 10**2
         self.max_softassign_iterations = 10**4
-        self.annealing_convergence_threshold = 1e-1
+        self.annealing_convergence_threshold = 2e-1
         self.relaxation_convergence_threshold = 1e-3
         self.softassign_convergence_threshold = 1e-3
 
