@@ -8,6 +8,7 @@ The actual ordering
 import numpy as np
 from . import settings, objectives
 from .utils import oprint, eprint
+from .parsers import write_xyz
 
 # TODO when the atoms much match, and there's the same number of atoms
 # the match matrix must be symmetric, and we only have to calculate the upper half
@@ -83,7 +84,6 @@ class Ordering(object):
         if settings.bond_objective:
             self.obj.append(objectives.Bond(self))
 
-
         # return function that returns the sum of all objective scoring functions
         return (lambda x, obj=self.obj: sum((fun.score(x) for fun in obj)))
 
@@ -154,7 +154,7 @@ class Ordering(object):
         # set sub blocks of the match matrix to one plus random pertubation
         # followed by column normalization
         for indices in self.element_type_subset_indices:
-            match_matrix[indices] = 1 + 1e-6 * np.random.random(match_matrix[indices].shape)
+            match_matrix[indices] = 1 + 1e-3 * np.random.random(match_matrix[indices].shape)
             match_matrix[indices] /= match_matrix[indices].sum(0)
 
         #match_matrix = np.eye(match_matrix.shape[0])
@@ -381,8 +381,8 @@ class Ordering(object):
             oprint(4, "%d out of %d matched in diagonal" % (sum(self.match_matrix.diagonal() > 0.5), N))
             rd = self.row_dominance(True)
             oprint(4, "Order: " + str(rd))
-            M1 = np.eye(N, dtype=bool)
-            M2 = np.zeros((N,N), dtype=bool)
+            M1 = np.eye(N, dtype=float)
+            M2 = np.zeros((N,N), dtype=float)
             for i in range(N):
                 M2[i,rd[i]] = 1
 
@@ -393,6 +393,4 @@ class Ordering(object):
             #        if M1[i,j] + M2[i,j] > 0.9:
             #            print i, j, [(scores1[k][i,j],scores2[k][i,j]) for k in range(3)]
             oprint(4, "Scores of diagonal ordering compared to found ordering: " + str([(np.sum(M1*scores1[k]), np.sum(M2*scores2[k])) for k in range(len(scores1))]))
-        else:
-            oprint(4, "Row dominance: " + str(self.row_dominance))
 

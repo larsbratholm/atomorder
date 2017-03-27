@@ -64,6 +64,7 @@ def read_coordinates_xyz(filename):
             except IndexError, ValueError:
                 quit("Error reading line %d in inputfile %s: \n line %s" % (l+3, filename, line))
     atoms = np.asarray(atoms)
+    #coordinates -= coordinates.mean(0)
     return atoms, coordinates
 
 def get_coordinates_pdb(filename):
@@ -145,7 +146,7 @@ def get_coordinates_pdb(filename):
                 % (coordinates.shape[0], atoms.size, filename))
     return atoms, coordinates
 
-def write_xyz(coordinates, elements, filename):
+def write_xyz(coordinates, elements, filename, title = ""):
     """
     Writes the given elements and coordinates to XYZ formated file
 
@@ -153,7 +154,7 @@ def write_xyz(coordinates, elements, filename):
     N = elements.size
 
     with open(filename, "w") as f:
-        f.write(str(N)+"\n")
+        f.write(str(N)+"\n"+title+"\n")
         for i in xrange(N):
             line = "{0:2s} {1:15.8f} {2:15.8f} {3:15.8f}\n".format(elements[i], *coordinates[i])
             f.write(line)

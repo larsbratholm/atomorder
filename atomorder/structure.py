@@ -420,11 +420,12 @@ class Molecule(object):
         for atom in self.atoms[subset]:
             # check if the number of bonds is a valid value
             num_bonds_check = atom.check_bond_count()
+
             # OK
             if num_bonds_check == 0:
                 pass
             # missing bond(s)
-            elif num_bonds_check < 0:
+            elif num_bonds_check > 0:
 
                 # check if any bonds can be formed outside the usual
                 # range, that can make the number of bonds and bond
@@ -437,7 +438,8 @@ class Molecule(object):
                     # this should make sure that excess bonds is not added to an atom
                     if index2 > atom.molecule_index:
                         continue
-                    if index2 == atom.molecule_index and self.atoms[index1].validated == False:
+                    # TODO add consistency check, because this might fail
+                    if index2 == atom.molecule_index:# and self.atoms[index1].validated == False:
                         self.add_bond(index1, index2)
                         next_subset.extend([index1,index2])
                         break
@@ -446,7 +448,7 @@ class Molecule(object):
                         break
                 continue
             # extra bond(s)
-            elif num_bonds_check > 0:
+            elif num_bonds_check < 0:
                 # TODO implement solution
                 eprint(2, "WARNING: Unusual number of bonds to atom %s" % atom.molecule_index)
                 continue
