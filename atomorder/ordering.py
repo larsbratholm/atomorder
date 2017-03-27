@@ -50,12 +50,13 @@ class Ordering(object):
         self.reactant_subset_indices, self.product_subset_indices = self.get_molecule_subset_indices()
         self.match_matrix = self.initialize_match_matrix()
         self.old_match_matrix = self.match_matrix.copy()
+        self.old_old_match_matrix = self.match_matrix.copy()
         self.score = self.initialize_objectives()
         self.inverse_temperature = 0
         self.Q = np.zeros(self.match_matrix.shape,dtype=float)
         self.initial_inverse_temperature, self.final_inverse_temperature, self.inverse_temperature_increment, \
                 self.max_annealing_iterations, self.max_relaxation_iterations, self.max_softassign_iterations, \
-                self.annealing_convergence_threshold, self.relaxation_convergence_threshold, self.softassign_convergence_threshold = self.set_parameters()
+                self.annealing_convergence_threshold, self.relaxation_convergence_threshold, self.softassign_convergence_threshold, self.softassign_convergence_threshold2 = self.set_parameters()
         self.it = 0
 
         # do the annealing
@@ -198,6 +199,7 @@ class Ordering(object):
 
         for i, indices in enumerate(self.element_type_subset_indices):
             M = self.match_matrix[indices]
+            old_M = M.copy()
             for it in xrange(self.max_softassign_iterations):
                 # normalize across rows (except slack)
                 M /= np.sum(M,axis=1)[:,None]
@@ -210,8 +212,15 @@ class Ordering(object):
                     oprint(5, "Softassign algorithm for subset %d converged in iteration %d" % (i, it+1))
                     break
 
+                mean_squared_difference = np.max(abs(old_M-M))
+                if mean_squared_difference < self.softassign_convergence_threshold2:
+                    oprint(5, "Softassign algorithm for subset %d converged in iteration %d" % (i, it+1))
+                    break
+
                 if it == (self.max_softassign_iterations - 1):
                     eprint(3, "WARNING: Softassign algorithm for subset %d did not converge to %.2g (reached %.2g) in %d iterations" % (i, self.softassign_convergence_threshold, max_row_normalization_error, self.max_softassign_iterations))
+
+                np.copyto(old_M, M)
 
             # M is NOT a view, but a copy
             self.match_matrix[indices] = M
@@ -250,6 +259,7 @@ class Ordering(object):
         annealing_convergence_threshold = settings.annealing_convergence_threshold
         relaxation_convergence_threshold = settings.relaxation_convergence_threshold
         softassign_convergence_threshold = settings.softassign_convergence_threshold
+        softassign_convergence_threshold2 = settings.softassign_convergence_threshold
 
         if settings.annealing_method == "multiplication":
             inverse_temperature_increment = (final_inverse_temperature / float(initial_inverse_temperature)) ** (1.0 / max_annealing_iterations)
@@ -261,7 +271,7 @@ class Ordering(object):
 
         return (initial_inverse_temperature, final_inverse_temperature, inverse_temperature_increment,
                 max_annealing_iterations, max_relaxation_iterations, max_softassign_iterations,
-                annealing_convergence_threshold, relaxation_convergence_threshold, softassign_convergence_threshold)
+                annealing_convergence_threshold, relaxation_convergence_threshold, softassign_convergence_threshold, softassign_convergence_threshold2)
 
     def annealing(self):
         """
@@ -269,6 +279,7 @@ class Ordering(object):
 
         """
         oprint(3, "Beginning deterministic annealing")
+        # TODO convergence on energy
 
         # TODO annealing b_n = b_0 * r**n (t_n = t_0 * r**-n) vs b_n = b_0 + n*r (t_n = t_0/(1 + t_0*n*r))
         # TODO allow soft assignment of atom types
@@ -298,6 +309,7 @@ class Ordering(object):
                 return True
 
             self.update_inverse_temperature()
+            print self.match_matrix.diagonal().sum()
 
         # The annealing terminated without a definitive assignment
         eprint(3, "WARNING: Annealing algorithm did not converge to %.2g (reached %.2g) in %d iterations and row dominance was %s" % (self.annealing_convergence_threshold, row_l2_deviation, self.max_annealing_iterations, str(self.row_dominance())))
@@ -338,16 +350,7 @@ class Ordering(object):
             #        print (np.eye(16)*real_scores[i])[j]
             #print ""
 
-            #np.exp(-self.inverse_temperature*(Q - min(max(Q.min(0)),max(Q.min(1)))) - 100 , out=self.match_matrix)
-            np.exp(-self.inverse_temperature*Q, out=self.match_matrix)
-            #print self.match_matrix.sum(0)
-            #print self.match_matrix.sum(1)
-            #print ""
-            if np.isnan(self.match_matrix).any():
-                for i in xrange(self.match_matrix.shape[0]):
-                    for j in xrange(self.match_matrix.shape[1]):
-                        print i,j, self.match_matrix[i,j]
-                quit("lol")
+            np.exp(-self.inverse_temperature*(Q - Q.min()) + 500 , out=self.match_matrix)
             # TODO check if this changes anything
             #self.match_matrix /= self.match_matrix.sum()**0.5
 
@@ -360,12 +363,20 @@ class Ordering(object):
                 oprint(5, "Relaxation algorithm converged in iteration %d" % (it+1))
                 break
 
+            # check if there's divergence
+            mean_squared_difference2 = np.max(abs(self.old_old_match_matrix-self.match_matrix))
+            if mean_squared_difference2 < self.relaxation_convergence_threshold:
+                self.match_matrix = self.match_matrix * 0.5 + self.old_match_matrix * 0.5
+                oprint(5, "Relaxation algorithm converged in iteration %d" % (it+1))
+                break
+
             if it == self.max_relaxation_iterations-1:
                 eprint(3, "WARNING: Relaxation algorithm did not converge to %.2g (reached %.2g) in %d iterations" % (self.relaxation_convergence_threshold, mean_squared_difference, self.max_relaxation_iterations))
 
             self.backup_match_matrix()
 
     def backup_match_matrix(self):
+        np.copyto(self.old_old_match_matrix,self.old_match_matrix)
         np.copyto(self.old_match_matrix,self.match_matrix)
 
     def finalize(self):
@@ -381,7 +392,8 @@ class Ordering(object):
             oprint(4, "%d out of %d matched in diagonal" % (sum(self.match_matrix.diagonal() > 0.5), N))
             rd = self.row_dominance(True)
             oprint(4, "Order: " + str(rd))
-            M1 = np.eye(N, dtype=float)
+            M1 = np.random.random((N,N))*1e-9 + np.eye(N, dtype=float)
+            M1 /= M1.sum(0)
             M2 = np.zeros((N,N), dtype=float)
             for i in range(N):
                 M2[i,rd[i]] = 1

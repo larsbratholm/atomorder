@@ -10,7 +10,7 @@ import scipy.optimize
 from . import settings
 import itertools
 from .utils import eprint, oprint
-from .parsers import write_xyz
+from .parsers import write_xyz, write_mol2
 
 # TODO options ignore monovalent / ignore hydrogens
 
@@ -79,8 +79,9 @@ class Rotation(object):
         """
         # initialize as s = (0,0,0,0) and r = (0,0,0,1)
         N, M = self.M.num_reactants, self.M.num_products
-        q = np.zeros((N+M-1, 2, 4))
-        q[:,1,3] = 1
+        # only use three elements and enforce constraints in the fourth
+        q = np.zeros((N-1, 2, 3))
+        #q[:,1,3] = 1
         return q
 
     def set_solver(self):
@@ -93,7 +94,7 @@ class Rotation(object):
         if self.M.num_reactants == 1 or self.M.num_products == 1:
             return self.analytical_solver
         else:
-            return self.numerical_solver
+            return self.semi_analytical_solver
 
     def analytical_solver(self, m):
         """
@@ -127,8 +128,7 @@ class Rotation(object):
 
         squared_distances = np.zeros(self.M.match_matrix.shape, dtype=float)
 
-        all_X = []
-        match[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] /= 10
+        match[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
         for i, reactant_indices in enumerate(self.M.reactant_subset_indices):
             for j, product_indices in enumerate(self.M.product_subset_indices):
                 X = self.X[reactant_indices]
@@ -151,13 +151,9 @@ class Rotation(object):
                 s = -C3.dot(r)/(2.0*C2)
                 rot, trans = self.transform(r,s)
 
-                all_X.append(trans + rot.dot(X.T).T)
-
                 squared_distances[sub_matrix_indices] = np.sum((Y[None,:,:] - trans[None,None,:] - rot.dot(X.T).T[:,None,:])**2, axis=2)
 
-        write_xyz(np.concatenate(all_X), self.M.reactants_elements, "reactant%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
-        write_xyz(Y, self.M.products_elements, "product.xyz")
-        squared_distances[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] /= 10
+        squared_distances[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
 
         return squared_distances
 
@@ -203,82 +199,37 @@ class Rotation(object):
             for i in xrange(N-1):
                 rot[M+i], trans[M+i] = self.transform(q[M+i,1], q[M+i, 0])
 
-            # use reactant 1 as reference
-            ref_indices = self.M.reactant_subset_indices[0]
+            # use product 1 as reference
+            ref_indices = self.M.product_subset_indices[0]
             Y0 = self.Y[ref_indices]
             squared_distances = np.zeros(match.shape)
-            for j, product_indices in enumerate(self.M.product_subset_indices):
-                # contribution between products and reactant 1
-                X = self.X[product_indices]
+            all_X = []
+            all_Y = []
+            for j, reactant_indices in enumerate(self.M.reactant_subset_indices):
+                # contribution between reactants and product 1
+                X = self.X[reactant_indices]
                 #match_sub_matrix = match[np.ix_(ref_indices, product_indices)]
-                squared_distances[np.ix_(ref_indices, product_indices)] = np.sum((Y0[:,None,:] - trans[j][None,None,:] - rot[j].dot(X.T).T[None,:,:])**2, axis=2)
+                squared_distances[np.ix_(reactant_indices, ref_indices)] = np.sum((Y0[None,:,:] - trans[j][None,None,:] - rot[j].dot(X.T).T[:,None,:])**2, axis=2)
+
 
                 # contributions between products and remaining reactants
-                for i, reactant_indices in enumerate(self.M.reactant_subset_indices[1:]):
-                    Y = self.Y[reactant_indices]
+                for i, product_indices in enumerate(self.M.product_subset_indices[1:]):
+                    Y = self.Y[product_indices]
                     #match_sub_matrix = match[np.ix_(reactant_indices, product_indices)]
-                    squared_distances[np.ix_(reactant_indices, product_indices)] = np.sum((trans[M+i][None,None,:] + (rot[M+i].dot(Y.T).T)[:,None,:] - trans[j][None,None,:] - (rot[j].dot(X.T).T)[None,:,:])**2, axis=2)
+                    squared_distances[np.ix_(reactant_indices, product_indices)] = np.sum((trans[M+i][None,None,:] + (rot[M+i].dot(Y.T).T)[None,:,:] - trans[j][None,None,:] - (rot[j].dot(X.T).T)[:,None,:])**2, axis=2)
 
-            print q, np.sum(match*squared_distances)
-            #if jac:
-            #    return E, J
+            for j, reactant_indices in enumerate(self.M.reactant_subset_indices):
+                all_X.append(trans[j] + rot[j].dot(self.X[reactant_indices].T).T)
+            all_Y.append(Y0)
+            for i, reactant_indices in enumerate(self.M.reactant_subset_indices[1:]):
+                all_Y.append(trans[M+i] + rot[M+i].dot(self.Y[product_indices].T).T)
+            write_xyz(np.concatenate(all_X), self.M.reactants_elements, "reactant%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
+            write_xyz(np.concatenate(all_Y), self.M.products_elements, "product%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
             E = np.sum(match*squared_distances)
             self.squared_distances = squared_distances.copy()
+
             return E
 
-        def new_objective(flat_q, match, self):
-
-            # size
-            N, M = self.M.num_reactants, self.M.num_products
-            # energy
-            E = 0
-
-            q = flat_q.reshape(N-1,2,4)
-            # There's N-1 pairs of r,s that has to be solved numerically
-            # construct rotation matrices and translation vectors
-            trans = np.zeros((N-1, 3))
-            rot = np.zeros((N-1, 3, 3))
-            for j in xrange(N-1):
-                rot[j], trans[j] = self.transform(q[j, 1], q[j, 0])
-
-            # use product 1 as reference
-            # TODO use the largest reactant if there's more products than reactants, and vice versa
-            ref_indices = self.M.reactant_subset_indices[0]
-            all_X = []
-            match[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= hydrogen_rotation_weight
-            for i, reactant_indices in enumerate(self.M.reactant_subset_indices):
-                for j, product_indices in enumerate(self.M.product_subset_indices):
-                    X = self.X[reactant_indices]
-                    # solve everything other than internal product rotations analytically
-                    if j == 0:
-                        Y = self.Y[product_indices]
-                    else:
-                        Y = trans[j-1] + rot[j-1].dot(self.Y[product_indices].T).T
-
-                    sub_matrix_indices = np.ix_(reactant_indices, product_indices)
-                    match_sub_matrix = match[sub_matrix_indices]
-                    Qt_dot_W = self.Qt_dot_W[sub_matrix_indices]
-                    W_minus_Q = self.W_minus_Q[sub_matrix_indices]
-
-                    C1 = -2*np.sum(match_sub_matrix[:,:,None,None]*Qt_dot_W,axis=(0,1))
-                    C2 = match_sub_matrix.sum()
-                    C3 = 2*np.sum(match_sub_matrix[:,:,None,None]*W_minus_Q,axis=(0,1))
-                    A = 0.5*(C3.T.dot(C3)/(2.0*C2)-C1-C1.T)
-                    # TODO remove
-                    assert(np.allclose(A,A.T))
-                    eigen = np.linalg.eigh(A)
-                    r = eigen[1][:,-1]
-                    # TODO remove
-                    assert(np.allclose(A.dot(r), eigen[0][-1]*r))
-                    s = -C3.dot(r)/(2.0*C2)
-                    rot, trans = self.transform(r,s)
-
-                    all_X.append(trans + rot.dot(X.T).T)
-
-                    squared_distances[sub_matrix_indices] = np.sum((Y[None,:,:] - trans[None,None,:] - rot.dot(X.T).T[:,None,:])**2, axis=2)
-
-            squared_distances[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
-            return E
 
         def rr_constraint_jacobian(x, j, N, M):
             # jacobian for use with SLSQP
@@ -311,15 +262,167 @@ class Rotation(object):
         for j in range(M+N-1):
             bounds.extend([(None, None)]*4)
             bounds.extend([(-1, 1)]*4)
-        q = self.q.copy()
-        opt = scipy.optimize.minimize(objective, q, constraints=cons, method="SLSQP", options={"maxiter": 500, "disp": 1, "ftol": 1e-4}, args=(match, self), bounds=bounds)
-        print opt.x
-        self.update_quaternions(opt.x.reshape((N+M-1),2,4))
+
+        q = np.zeros((N+M-1, 2, 4))
+        q[:,1,3] = 1
+
+        objective(q, match, self)
+        opt = scipy.optimize.minimize(objective, q, constraints=cons, method="SLSQP", options={"maxiter": 500, "disp": 0, "ftol": 1e-4}, args=(match, self), bounds=bounds)
+        squared_distances = self.squared_distances.copy()
+        #self.update_quaternions(opt.x.reshape((N+M-1),2,4))
         return self.squared_distances
 
-    def semi_analytical_solver(self):
-        # TODO, remove restraints and do some of the work analytical
-        pass
+    def semi_analytical_solver(self, match):
+        """
+        See page 363 Walker91
+
+        Semi-numerical version for multiple reactants and products
+
+        Parameters:
+        -----------
+        match: ndarray
+            array of atom order probabilities
+
+        """
+
+        def objective(flat_q, m, self):
+            match = m.copy()
+
+            # size
+            N, M = self.M.num_reactants, self.M.num_products
+            squared_distances = np.zeros(match.shape)
+            # energy
+            E = 0
+
+            # reshape
+            q = flat_q.reshape(N-1,2,3)
+            # add restraints as in the fourth element in the quaternions
+            q = np.concatenate([q, np.zeros((N-1,2,1))], axis=2)
+
+            # There's N-1 pairs of r,s that has to be solved numerically
+            # construct rotation matrices and translation vectors
+            trans = np.zeros((N-1, 3))
+            rot = np.zeros((N-1, 3, 3))
+            for j in xrange(N-1):
+                # r restraints
+                r4_sq = 1 - q[j,1,0]**2 - q[j,1,1]**2 - q[j,1,2]**2
+                if r4_sq < 0:
+                    return np.inf
+                q[j,1,3] = np.sqrt(r4_sq)
+                # s restraints
+                s4 = - (q[j,0,0]*q[j,1,0] + q[j,0,1]*q[j,1,1] + q[j,0,2]*q[j,1,2])/q[j,1,3]
+                rot[j], trans[j] = self.transform(q[j, 1], q[j, 0])
+
+            ## use product 1 as reference
+            #match[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
+            #for i, reactant_indices in enumerate(self.M.reactant_subset_indices):
+            #    X = self.X[reactant_indices]
+            #    for j, product_indices in enumerate(self.M.product_subset_indices):
+            #        # solve everything other than internal product rotations analytically
+            #        if j == 0:
+            #            Y = self.Y[product_indices]
+            #        else:
+            #            Y = trans[j-1] + rot[j-1].dot(self.Y[product_indices].T).T
+
+            #        sub_matrix_indices = np.ix_(reactant_indices, product_indices)
+            #        match_sub_matrix = match[sub_matrix_indices]
+            #        #Qt_dot_W = self.Qt_dot_W[sub_matrix_indices]
+            #        #W_minus_Q = self.W_minus_Q[sub_matrix_indices]
+            #        Q = np.asarray([self.makeQ(*y) for y in Y])
+            #        Qt_dot_W = np.asarray([[np.dot(q.T,w) for q in Q] for w in self.W[reactant_indices]])
+            #        W_minus_Q = np.asarray([[w - q for q in Q] for w in self.W[reactant_indices]])
+
+            #        C1 = -2*np.sum(match_sub_matrix[:,:,None,None]*Qt_dot_W,axis=(0,1))
+            #        C2 = match_sub_matrix.sum()
+            #        C3 = 2*np.sum(match_sub_matrix[:,:,None,None]*W_minus_Q,axis=(0,1))
+            #        A = 0.5*(C3.T.dot(C3)/(2.0*C2)-C1-C1.T)
+            #        # TODO remove
+            #        assert(np.allclose(A,A.T))
+            #        eigen = np.linalg.eigh(A)
+            #        r = eigen[1][:,-1]
+            #        # TODO remove
+            #        assert(np.allclose(A.dot(r), eigen[0][-1]*r))
+            #        s = -C3.dot(r)/(2.0*C2)
+            #        xrot, xtrans = self.transform(r,s)
+
+            #        #all_X.append(xtrans + xrot.dot(X.T).T)
+            #        #all_Y.append(Y)
+
+            #        squared_distances[sub_matrix_indices] = np.sum((Y[None,:,:] - xtrans[None,None,:] - xrot.dot(X.T).T[:,None,:])**2, axis=2)
+
+            #squared_distances[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
+            #E += np.sum(m*squared_distances)
+            #self.squared_distances = squared_distances.copy()
+
+            Y = []
+            for j,  product_indices in enumerate(self.M.product_subset_indices):
+                if j == 0:
+                    Y.append(self.Y[product_indices])
+                else:
+                    Y.append(trans[j-1] + rot[j-1].dot(self.Y[product_indices].T).T)
+            Y = np.concatenate(Y)
+            all_X = []
+            for i, reactant_indices in enumerate(self.M.reactant_subset_indices):
+                X = self.X[reactant_indices]
+                Q = np.asarray([self.makeQ(*y) for y in Y])
+                Qt_dot_W = np.asarray([[np.dot(q.T,w) for q in Q] for w in self.W[reactant_indices]])
+                W_minus_Q = np.asarray([[w - q for q in Q] for w in self.W[reactant_indices]])
+                match_sub_matrix = match[reactant_indices,:]
+
+                C1 = -2*np.sum(match_sub_matrix[:,:,None,None]*Qt_dot_W,axis=(0,1))
+                C2 = match_sub_matrix.sum()
+                C3 = 2*np.sum(match_sub_matrix[:,:,None,None]*W_minus_Q,axis=(0,1))
+                # 1e-9 for stability
+                A = 0.5*(C3.T.dot(C3)/(2.0*C2+1e-9)-C1-C1.T)
+                # TODO remove
+                assert(np.allclose(A,A.T))
+                eigen = np.linalg.eigh(A)
+                r = eigen[1][:,-1]
+                # TODO remove
+                assert(np.allclose(A.dot(r), eigen[0][-1]*r))
+                s = -C3.dot(r)/(2.0*C2)
+                xrot, xtrans = self.transform(r,s)
+
+                #all_X.append(xtrans + xrot.dot(X.T).T)
+                #all_Y.append(Y)
+                all_X.append(xtrans + xrot.dot(X.T).T)
+
+                squared_distances[reactant_indices,:] = np.sum((Y[None,:,:] - xtrans[None,None,:] - xrot.dot(X.T).T[:,None,:])**2, axis=2)
+            for i, v in enumerate(all_X):
+                all_X[i] += np.asarray([1*i,0,0])
+            write_xyz(np.concatenate(all_X), self.M.reactants_elements, "reactant%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
+            write_xyz(Y, self.M.products_elements, "product%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
+            write_mol2(np.concatenate(all_X), self.M.reaction.reactants.atoms, "reactant%d.mol2" % self.M.it,self.M.reaction.num_reactant_atoms)
+            write_mol2(Y, self.M.reaction.products.atoms, "product%d.mol2" % self.M.it, self.M.reaction.num_product_atoms)
+
+            squared_distances[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
+            E += np.sum(m*squared_distances)
+            self.squared_distances = squared_distances.copy()
+            #for i, xi in enumerate(all_X):
+            #    for xj in all_X[i+1:]:
+            #        clash = (np.sum((xi[:,None,:]-xj[None,:,:])**2, axis=2)**0.5 < 1.2)
+            #        if clash.any():
+            #            d = (np.sum((xi[:,None,:]-xj[None,:,:])**2, axis=2)**0.5)[clash].ravel()
+            #            E += np.sum((d-1.2)**2)*10000
+
+            #        #clash = (np.sum((X[~self.reactant_hydrogen_mask[reactant_indices]][:,None,:] - XK[~self.reactant_hydrogen_mask[K]][None,:,:])**2, axis=2)**0.5 < 1.8)
+            #        #if clash.any():
+            #        #    quit()
+            #        #    E += clash.sum()*1000
+            #print E
+            return E
+
+        N, M = self.M.num_reactants, self.M.num_products
+        bounds = []
+        for j in range(N-1):
+            bounds.extend([(None, None)]*3)
+            bounds.extend([(-1, 1)]*3)
+        q = self.q.copy().ravel()
+        opt = scipy.optimize.minimize(objective, q, method="l-bfgs-b", options={"maxiter": 500, "disp": 0, "ftol": 1e-6}, args=(match, self), bounds=bounds)
+        #opt = scipy.optimize.minimize(objective, q, method="nelder-mead", options={"maxiter": 500, "disp": 0, "ftol": 1e-6}, args=(match, self))
+        #assert(np.allclose(self.squared_distances, self.analytical_solver(match)))
+        self.update_quaternions(opt.x.reshape((N-1),2,3))
+        return self.squared_distances 
 
     def update_quaternions(self, q):
         self.q = q.copy()

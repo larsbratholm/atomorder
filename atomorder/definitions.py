@@ -183,13 +183,14 @@ class Settings(object):
         self.annealing_method = "multiplication" # multiplication/addition
         #self.annealing_method = "addition"
         self.initial_inverse_temperature = 1e-1
-        self.final_inverse_temperature = 1e2
+        self.final_inverse_temperature = 1e1
         self.max_annealing_iterations = 100
-        self.max_relaxation_iterations = 10**2
-        self.max_softassign_iterations = 10**3
-        self.annealing_convergence_threshold = 1e-1
+        self.max_relaxation_iterations = 100
+        self.max_softassign_iterations = 1000
+        self.annealing_convergence_threshold = 1e-2
         self.relaxation_convergence_threshold = 1e-2
-        self.softassign_convergence_threshold = 1e-3
+        self.softassign_convergence_threshold = 1e-4
+        self.softassign_convergence_threshold2 = 1e-4
 
     def construct_pipeline(self):
         """
