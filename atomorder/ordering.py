@@ -309,7 +309,6 @@ class Ordering(object):
                 return True
 
             self.update_inverse_temperature()
-            print self.match_matrix.diagonal().sum()
 
         # The annealing terminated without a definitive assignment
         eprint(3, "WARNING: Annealing algorithm did not converge to %.2g (reached %.2g) in %d iterations and row dominance was %s" % (self.annealing_convergence_threshold, row_l2_deviation, self.max_annealing_iterations, str(self.row_dominance())))
@@ -392,11 +391,28 @@ class Ordering(object):
             oprint(4, "%d out of %d matched in diagonal" % (sum(self.match_matrix.diagonal() > 0.5), N))
             rd = self.row_dominance(True)
             oprint(4, "Order: " + str(rd))
-            M1 = np.random.random((N,N))*1e-9 + np.eye(N, dtype=float)
-            M1 /= M1.sum(0)
+            #M1 = np.random.random((N,N))*1e-9 + np.eye(N, dtype=float)
+            #M1 /= M1.sum(0)
+            M1 = np.eye(N, dtype=float)
+            #M1[17,17] = 0
+            #M1[17,30] = 1
+            #M1[14,14] = 0
+            #M1[14,16] = 1
+            #M1[16,16] = 0
+            #M1[16,14] = 1
+            #M1[30,30] = 0
+            #M1[30,29] = 1
+            #M1[19,19] = 0
+            #M1[19,17] = 1
+            #M1[18,18] = 0
+            #M1[18,19] = 1
+            #M1[29,29] = 0
+            #M1[29,18] = 1
             M2 = np.zeros((N,N), dtype=float)
             for i in range(N):
                 M2[i,rd[i]] = 1
+
+            print np.sum(abs(M1-M2))
 
             scores1 = [fun.score(M1) for fun in self.obj]
             scores2 = [fun.score(M2) for fun in self.obj]

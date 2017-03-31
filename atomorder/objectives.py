@@ -129,9 +129,10 @@ class Rotation(object):
         squared_distances = np.zeros(self.M.match_matrix.shape, dtype=float)
 
         match[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
+        all_X  = []
         for i, reactant_indices in enumerate(self.M.reactant_subset_indices):
+            X = self.X[reactant_indices]
             for j, product_indices in enumerate(self.M.product_subset_indices):
-                X = self.X[reactant_indices]
                 Y = self.Y[product_indices]
                 sub_matrix_indices = np.ix_(reactant_indices, product_indices)
                 match_sub_matrix = match[sub_matrix_indices]
@@ -152,8 +153,11 @@ class Rotation(object):
                 rot, trans = self.transform(r,s)
 
                 squared_distances[sub_matrix_indices] = np.sum((Y[None,:,:] - trans[None,None,:] - rot.dot(X.T).T[:,None,:])**2, axis=2)
+            all_X.append(trans + rot.dot(X.T).T)
 
         squared_distances[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
+        write_mol2(np.concatenate(all_X), self.M.reaction.reactants.atoms, "reactant%d.mol2" % self.M.it,self.M.reaction.num_reactant_atoms)
+        write_mol2(self.Y+np.asarray([10,0,0]), self.M.reaction.products.atoms, "product%d.mol2" % self.M.it, self.M.reaction.num_product_atoms, match)
 
         return squared_distances
 
@@ -390,10 +394,10 @@ class Rotation(object):
                 squared_distances[reactant_indices,:] = np.sum((Y[None,:,:] - xtrans[None,None,:] - xrot.dot(X.T).T[:,None,:])**2, axis=2)
             for i, v in enumerate(all_X):
                 all_X[i] += np.asarray([1*i,0,0])
-            write_xyz(np.concatenate(all_X), self.M.reactants_elements, "reactant%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
-            write_xyz(Y, self.M.products_elements, "product%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
+            #write_xyz(np.concatenate(all_X), self.M.reactants_elements, "reactant%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
+            #write_xyz(Y, self.M.products_elements, "product%d.xyz" % self.M.it, str(np.sum(match*squared_distances)))
             write_mol2(np.concatenate(all_X), self.M.reaction.reactants.atoms, "reactant%d.mol2" % self.M.it,self.M.reaction.num_reactant_atoms)
-            write_mol2(Y, self.M.reaction.products.atoms, "product%d.mol2" % self.M.it, self.M.reaction.num_product_atoms)
+            write_mol2(Y+np.asarray([10,0,0]), self.M.reaction.products.atoms, "product%d.mol2" % self.M.it, self.M.reaction.num_product_atoms, match)
 
             squared_distances[np.ix_(self.reactant_hydrogen_mask, self.product_hydrogen_mask)] *= settings.hydrogen_rotation_weight
             E += np.sum(m*squared_distances)
@@ -418,6 +422,7 @@ class Rotation(object):
             bounds.extend([(None, None)]*3)
             bounds.extend([(-1, 1)]*3)
         q = self.q.copy().ravel()
+        #q = np.zeros(q.shape)
         opt = scipy.optimize.minimize(objective, q, method="l-bfgs-b", options={"maxiter": 500, "disp": 0, "ftol": 1e-6}, args=(match, self), bounds=bounds)
         #opt = scipy.optimize.minimize(objective, q, method="nelder-mead", options={"maxiter": 500, "disp": 0, "ftol": 1e-6}, args=(match, self))
         #assert(np.allclose(self.squared_distances, self.analytical_solver(match)))
