@@ -1,4 +1,5 @@
 #atomorder
+(Soon to be L'arsign(TM))
 Maps atoms from reactants to products in a reaction and other secret cool stuff.
 
 examples:
